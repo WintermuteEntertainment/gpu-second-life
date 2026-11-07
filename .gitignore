@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.egg-info/
+gpudoc-runs/
+# Contain card identifiers or machine details. Do not commit.
+/captures/
+tests/captures/raw_private/
+*.log
+reports/
+backup_logs/

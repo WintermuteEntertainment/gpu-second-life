@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gpudoc"
+version = "0.1.0.dev0"
+description = "Evidence-based reports on used GPUs"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+gpudoc = "gpudoc.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
