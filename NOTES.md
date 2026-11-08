@@ -23,6 +23,7 @@ Lessons, reminders, and storage history from real work on this project. See `HAN
 | Killing `memtest_vulkan` seemed to leave its worker running. | The GPU stayed busy and blocked the next tool. I first blamed stale readings. | Stop the process tree, check for leftovers, and test the theory before stating it. |
 | I reported the stash as checked using sizes and dates. iCloud copies kept a cloud tag and couldn't be read normally. | I found it after BBB's D: was reformatted. All 7,336 files in those folders were then recovered and checksummed. | A successful copy isn't proof. Test normal reads and checksum anything irreplaceable before erasing a source. |
 | A Git Bash SSH command used `-o UserKnownHostsFile=NUL`. | It created a real file named `NUL`. | Use `/dev/null` in Git Bash and `NUL` in PowerShell. |
+| The GTX 1060 was missing from `nvidia-smi` on 2026-11-08 while `lspci` saw it. Its power cable wasn't connected, which had also happened once before. | Time went into driver and boot checks first. | When a card shows in `lspci` but not in `nvidia-smi`, ask Tim to check its power cable before software diagnosis. |
 
 ## What worked
 
