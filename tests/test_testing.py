@@ -6,9 +6,9 @@ import time
 import unittest
 from pathlib import Path
 
-from gpudoc.inspect_core import parse_valid_fields
-from gpudoc.testing import (Evidence, LlamaBench, MemtestVulkan, combine, energy_wh, evaluate, resolve_sample_fields,
-                            stop_and_confirm, temp_limit_for, wait_until_idle)
+from gpudoc.inspect_core import CaptureRunner, inspect, parse_valid_fields
+from gpudoc.testing import (Evidence, LlamaBench, MemtestVulkan, combine, device_check, energy_wh, evaluate, memtest_label_for,
+                            parse_bus_id, resolve_sample_fields, select_gpu, stop_and_confirm, temp_limit_for, wait_until_idle)
 
 CAPTURES = Path(__file__).parent / "captures"
 ADAPTER = MemtestVulkan("memtest_vulkan")
@@ -163,6 +163,99 @@ class RealFieldData(unittest.TestCase):
     def test_temperature_limit_respects_real_slowdown_limit(self):
         self.assertEqual(temp_limit_for({"slowdown_temp": 93.0}, None), 85)
         self.assertEqual(temp_limit_for({"slowdown_temp": 93.0}, 90), 88)
+
+
+class RealTwoGpuSelection(unittest.TestCase):
+    """Real Mint capture with both cards on driver 580.178.04, 2026-11-08."""
+
+    def setUp(self):
+        self.report, _ = inspect(CaptureRunner(CAPTURES / "gtx1660_gtx1060_driver58017804_mint"))
+        self.gpus = self.report["gpus"]
+
+    def test_capture_has_both_cards_on_their_buses(self):
+        self.assertEqual([(g["fields"]["name"]["value"], g["details"]["pci_bus_id"]) for g in self.gpus],
+                         [("NVIDIA GeForce GTX 1660", "00000000:01:00.0"), ("NVIDIA GeForce GTX 1060 6GB", "00000000:02:00.0")])
+
+    def test_narrow_slot_note_names_widths_without_blaming_the_card(self):
+        # The 1060 sits in Noodlecart's x4 slot; the 1660 runs at its full x16.
+        note = [n for n in self.gpus[1]["notes"] if "PCIe link" in n]
+        self.assertEqual(len(note), 1)
+        self.assertIn("x4", note[0])
+        self.assertIn("x16", note[0])
+        self.assertIn("doesn't point to a fault in the card", note[0])
+        self.assertFalse(any("PCIe link" in n for n in self.gpus[0]["notes"]))
+
+    def test_no_choice_with_two_cards_is_refused_and_lists_them(self):
+        g, why = select_gpu(self.report, None)
+        self.assertIsNone(g)
+        self.assertIn("--gpu", why)
+        self.assertIn("02:00.0", why)
+
+    def test_index_and_bus_id_forms_pick_the_same_card(self):
+        for wanted in ("1", "02:00.0", "0000:02:00.0", "00000000:02:00.0"):
+            g, why = select_gpu(self.report, wanted)
+            self.assertIsNone(why, wanted)
+            self.assertEqual(g["fields"]["name"]["value"], "NVIDIA GeForce GTX 1060 6GB", wanted)
+
+    def test_unknown_or_malformed_choice_is_refused(self):
+        for wanted in ("2", "03:00.0", "gtx1060"):
+            g, why = select_gpu(self.report, wanted)
+            self.assertIsNone(g, wanted)
+            self.assertIn("Found:", why)
+
+    def test_memtest_label_follows_assumed_bus_order(self):
+        # Assumed order from memtest_vulkan's main-branch source: highest bus first. Unverified on v0.5.0,
+        # which is why the run also checks the tested device.
+        self.assertEqual(memtest_label_for(self.gpus, self.gpus[1]), 1)
+        self.assertEqual(memtest_label_for(self.gpus, self.gpus[0]), 2)
+        self.assertEqual(MemtestVulkan("memtest_vulkan", 1).command(), ["memtest_vulkan", "1"])
+        self.assertEqual(MemtestVulkan("memtest_vulkan").command(), ["memtest_vulkan"])
+
+
+class RealTestedDevice(unittest.TestCase):
+    """The tested-device line from real memtest_vulkan runs, against the real Mint two-card capture."""
+
+    def setUp(self):
+        report, _ = inspect(CaptureRunner(CAPTURES / "gtx1660_gtx1060_driver58017804_mint"))
+        self.gtx1660, self.gtx1060 = report["gpus"]
+
+    def device_from(self, name):
+        return ADAPTER.parse((CAPTURES / name / "stdout.txt").read_text(encoding="utf-8"))["tested_device"]
+
+    def test_tested_device_is_parsed(self):
+        self.assertEqual(self.device_from("memtest_gtx1060_full"), {"label": 1, "bus": 1, "device": 0, "dev_id": 0x1C03})
+
+    def test_matching_card_passes_the_check(self):
+        # The 1660 was on bus 01 in both the memtest run and the Mint capture.
+        self.assertIsNone(device_check(self.device_from("memtest_gtx1660_full"), self.gtx1660, 2))
+
+    def test_other_card_is_caught(self):
+        # memtest_vulkan's 1660 run, compared with the Mint 1060: different card, so the result can't apply.
+        finding = device_check(self.device_from("memtest_gtx1660_full"), self.gtx1060, 2)
+        self.assertEqual((finding["rule"], finding["state"]), ("RUN-008", "INCONCLUSIVE"))
+
+    def test_same_card_in_another_slot_is_caught(self):
+        # The 1060 was on bus 01 when tested alone on 2026-11-06, and is on bus 02 now.
+        finding = device_check(self.device_from("memtest_gtx1060_full"), self.gtx1060, 2)
+        self.assertEqual(finding["rule"], "RUN-008")
+
+    def test_unnamed_device_with_two_cards_cannot_pass(self):
+        self.assertEqual(device_check(None, self.gtx1060, 2)["rule"], "RUN-009")
+        self.assertIsNone(device_check(None, self.gtx1060, 1))
+
+    def test_wrong_device_finding_makes_run_inconclusive(self):
+        tool, samples = load("memtest_gtx1660_full")
+        r = evaluate(ev(tool, samples, extra=[device_check(tool["tested_device"], self.gtx1060, 2)]))
+        self.assertEqual(r["state"], "INCONCLUSIVE")
+
+
+class BusIdParsing(unittest.TestCase):
+    def test_forms_from_nvidia_smi_and_lspci(self):
+        # 00000000:02:00.0 is nvidia-smi's form; 02:00.0 is lspci's. Both read from Noodlecart.
+        self.assertEqual(parse_bus_id("00000000:02:00.0"), (0, 2, 0, 0))
+        self.assertEqual(parse_bus_id("02:00.0"), (0, 2, 0, 0))
+        self.assertIsNone(parse_bus_id("02:00"))
+        self.assertIsNone(parse_bus_id(None))
 
 
 if __name__ == "__main__":

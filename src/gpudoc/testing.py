@@ -34,25 +34,44 @@ class MemtestVulkan:
 
     id = "memtest_vulkan"
     version = "0.5.0"
+    reports_device = True
     COMPLETE = "Standard 5-minute test PASSed!"
     PROGRESS = re.compile(r"^\s*(\d+) iteration\. Passed\s+[\d.]+ seconds")
+    # Real line: "Standard 5-minute test of 1: Bus=0x01:00 DevId=0x1C03   6GB NVIDIA GeForce GTX 1060 6GB"
+    TESTED = re.compile(r"Standard 5-minute test of (\d+): Bus=0x([0-9A-Fa-f]{2}):([0-9A-Fa-f]{2}) DevId=0x([0-9A-Fa-f]{4})")
     # No real failing log exists yet, so this match is unverified. A match can only make a run fail.
     FAILURE = re.compile(r"\b(FAIL|Error|ERROR|error)\b")
 
-    def __init__(self, exe: str):
-        self.exe = exe
+    def __init__(self, exe: str, device_label: int | None = None):
+        self.exe, self.device_label = exe, device_label
 
     def command(self) -> list[str]:
-        return [self.exe]
+        # A device number as the first argument skips the selection menu. This comes from the project's
+        # main-branch source, not a v0.5.0 test, so the device the tool reports is checked during the run.
+        return [self.exe] + ([str(self.device_label)] if self.device_label is not None else [])
 
     def parse(self, text: str) -> dict:
         lines = text.splitlines()
+        tested = next((m for m in map(self.TESTED.search, lines) if m), None)
         return {
             "completed": any(line.strip().startswith(self.COMPLETE) for line in lines),
             "failure_lines": [line.strip() for line in lines if self.FAILURE.search(line)][:20],
             "iterations": max((int(m.group(1)) for m in map(self.PROGRESS.match, lines) if m), default=0),
             "started": any("Standard 5-minute test of" in line for line in lines),
+            "tested_device": {"label": int(tested.group(1)), "bus": int(tested.group(2), 16), "device": int(tested.group(3), 16),
+                              "dev_id": int(tested.group(4), 16)} if tested else None,
         }
+
+
+def memtest_label_for(gpus: list[dict], target: dict) -> int | None:
+    """memtest_vulkan's 1-based device number for a card, assuming its main-branch order: discrete GPUs
+    first, then highest PCI bus first. That order is unverified on v0.5.0, so the run checks the
+    device the tool reports and stops if it's the wrong card."""
+    keyed = [(parse_bus_id(g["details"].get("pci_bus_id")), g) for g in gpus]
+    if any(k is None for k, _ in keyed):
+        return None
+    order = sorted(keyed, key=lambda kg: kg[0][1], reverse=True)
+    return next(i + 1 for i, (_, g) in enumerate(order) if g is target)
 
 
 class LlamaBench:
@@ -84,6 +103,69 @@ class LlamaBench:
             "generation_tokens_per_second": gen[-1].get("avg_ts") if gen else None,
             "backend": rows[-1].get("backends") if rows else None, "gpu_layers": rows[-1].get("n_gpu_layers") if rows else None,
         }
+
+
+# ---------- GPU selection ----------
+BUS_ID = re.compile(r"^(?:([0-9A-Fa-f]{1,8}):)?([0-9A-Fa-f]{1,2}):([0-9A-Fa-f]{1,2})\.([0-7])$")
+
+
+def parse_bus_id(text: str | None) -> tuple[int, int, int, int] | None:
+    """Reads a PCI bus ID such as 00000000:02:00.0 or 02:00.0 into (domain, bus, device, function)."""
+    m = BUS_ID.match((text or "").strip())
+    if not m:
+        return None
+    return int(m.group(1) or "0", 16), int(m.group(2), 16), int(m.group(3), 16), int(m.group(4))
+
+
+def describe_gpu(g: dict) -> str:
+    return f"GPU {g['index']}: {g['fields']['name']['value']} at {g['details'].get('pci_bus_id') or 'unknown bus'}"
+
+
+def select_gpu(report: dict, wanted: str | None) -> tuple[dict | None, str | None]:
+    """Finds the card to test by nvidia-smi index or PCI bus ID. Returns (gpu, None) or (None, reason)."""
+    gpus = report["gpus"]
+    if not gpus:
+        return None, "No GPU was detected."
+    listing = "; ".join(describe_gpu(g) for g in gpus)
+    if wanted is None:
+        if len(gpus) == 1:
+            return gpus[0], None
+        return None, f"{len(gpus)} GPUs are installed, so choose one with --gpu, by index or PCI bus ID. Found: {listing}."
+    wanted = wanted.strip()
+    if wanted.isdigit():
+        match = [g for g in gpus if g["index"] == int(wanted)]
+    else:
+        want = parse_bus_id(wanted)
+        if want is None:
+            return None, f"'{wanted}' isn't a GPU index or a PCI bus ID such as 02:00.0. Found: {listing}."
+        match = [g for g in gpus if parse_bus_id(g["details"].get("pci_bus_id")) == want]
+    if not match:
+        return None, f"No GPU matches '{wanted}'. Found: {listing}."
+    g = match[0]
+    if len(gpus) > 1:
+        # The query rows and XML entries are paired by position. With several cards, only trust the pairing when the UUIDs agree.
+        uuid = next((c["result"] for c in g["crosschecks"] if c["field"] == "uuid"), None)
+        if uuid != "match":
+            return None, f"Couldn't confirm which bus {describe_gpu(g)} is on, because nvidia-smi's two outputs don't agree on its UUID."
+    return g, None
+
+
+def device_check(tested: dict | None, g: dict, gpu_count: int) -> dict | None:
+    """Compares the device a tool says it tested with the selected card. Returns a finding, or None if it matches."""
+    if tested is None:
+        if gpu_count > 1:
+            return {"rule": "RUN-009", "state": "INCONCLUSIVE", "text": "The tool didn't say which card it tested, and more than one GPU is installed."}
+        return None
+    bus = parse_bus_id(g["details"].get("pci_bus_id"))
+    dev = g["fields"]["pci_device_id"]["value"]
+    dev_id = int(dev, 16) >> 16 if dev else None
+    if bus is None or dev_id is None:
+        return {"rule": "RUN-009", "state": "INCONCLUSIVE", "text": "The selected card's bus or device ID is unknown, so the tested card can't be confirmed."}
+    if (tested["bus"], tested["device"], tested["dev_id"]) != (bus[1], bus[2], dev_id):
+        return {"rule": "RUN-008", "state": "INCONCLUSIVE", "text": (
+            f"The tool tested Bus=0x{tested['bus']:02X}:{tested['device']:02X} DevId=0x{tested['dev_id']:04X}, "
+            f"not the selected {describe_gpu(g)}. The result doesn't apply to the selected card.")}
+    return None
 
 
 def combine(results: list[dict]) -> str:
@@ -256,16 +338,18 @@ def temp_limit_for(details: dict, requested: int | None) -> int:
     return min(limit, int(slow) - SLOWDOWN_MARGIN) if slow else limit
 
 
-def run_suite(adapters: list, out_dir: Path, max_seconds: int = 420, temp_limit: int | None = None, cooldown: int = 60, runner=None) -> dict:
+def run_suite(adapters: list, out_dir: Path, max_seconds: int = 420, temp_limit: int | None = None, cooldown: int = 60, runner=None,
+              gpu_select: str | None = None) -> dict:
     """Runs tools one at a time, so one tool's leftovers can't silently affect the next."""
     runner = runner or LocalRunner()
     results = []
     for i, adapter in enumerate(adapters):
         if i:
             time.sleep(cooldown)
-        r = run_adapter(adapter, out_dir / f"{i + 1}_{adapter.id}", max_seconds=max_seconds, temp_limit=temp_limit, runner=runner)
+        r = run_adapter(adapter, out_dir / f"{i + 1}_{adapter.id}", max_seconds=max_seconds, temp_limit=temp_limit, runner=runner,
+                        gpu_select=gpu_select)
         results.append(r)
-        if r["state"] == "FAIL" or r["summary"].get("stop_reason") in {"temperature_limit", "sensor_failure"}:
+        if r["state"] == "FAIL" or r["summary"].get("stop_reason") in {"temperature_limit", "sensor_failure", "wrong_device"}:
             break
     skipped = [a.id for a in adapters[len(results):]]
     suite = {"state": "INCONCLUSIVE" if skipped and combine(results) != "FAIL" else combine(results), "skipped": skipped, "steps": results}
@@ -274,17 +358,24 @@ def run_suite(adapters: list, out_dir: Path, max_seconds: int = 420, temp_limit:
     return suite
 
 
-def run_adapter(adapter, out_dir: Path, gpu: int = 0, max_seconds: int = 420, interval: float = 5.0,
+def run_adapter(adapter, out_dir: Path, gpu_select: str | None = None, max_seconds: int = 420, interval: float = 5.0,
                 temp_limit: int | None = None, runner=None) -> dict:
     runner = runner or LocalRunner()
     before, raw = inspect(runner)
     if not before["gpus"]:
         return {"state": "INCONCLUSIVE", "findings": [{"rule": "RUN-005", "state": "INCONCLUSIVE", "text": "No GPU was detected."}], "summary": {}}
-    if len(before["gpus"]) > 1:
-        # memtest_vulkan's device choice hasn't been tested on a multi-GPU machine.
-        return {"state": "INCONCLUSIVE", "summary": {}, "findings": [{"rule": "RUN-006", "state": "INCONCLUSIVE",
-                "text": "More than one GPU is present. Device selection for this tool isn't verified, so the test didn't run."}]}
-    g = before["gpus"][gpu]
+    g, why = select_gpu(before, gpu_select)
+    if g is None:
+        return {"state": "INCONCLUSIVE", "summary": {}, "tool_id": adapter.id, "findings": [{"rule": "RUN-010", "state": "INCONCLUSIVE", "text": why}]}
+    count = len(before["gpus"])
+    if count > 1 and not getattr(adapter, "reports_device", False):
+        # Without the tool naming its device, a result can't be tied to one card.
+        return {"state": "INCONCLUSIVE", "summary": {}, "tool_id": adapter.id, "findings": [{"rule": "RUN-006", "state": "INCONCLUSIVE",
+                "text": f"More than one GPU is present, and {adapter.id} can't yet be confirmed to use only the selected card, so it didn't run."}]}
+    if count > 1:
+        adapter.device_label = memtest_label_for(before["gpus"], g)
+    # nvidia-smi accepts a PCI bus ID here, which avoids relying on index order (checked on Mint, driver 580.178.04).
+    gpu = g["details"].get("pci_bus_id") or g["index"]
     limit = temp_limit_for(g["details"], temp_limit)
     fields = resolve_sample_fields(_valid_fields(raw))
     idle = wait_until_idle(lambda: sample(runner, fields, gpu).get("gpu_util"))
@@ -317,6 +408,9 @@ def run_adapter(adapter, out_dir: Path, gpu: int = 0, max_seconds: int = 420, in
                 reason = "tool_exited"
                 break
             parsed = adapter.parse(stdout_path.read_text(encoding="utf-8", errors="replace"))
+            if parsed.get("tested_device") and device_check(parsed["tested_device"], g, count):
+                reason = "wrong_device"
+                break
             if parsed["completed"]:
                 reason = "tool_finished"
                 break
@@ -331,12 +425,21 @@ def run_adapter(adapter, out_dir: Path, gpu: int = 0, max_seconds: int = 420, in
     stop["leftovers"] = len(leftovers)
     tool = adapter.parse(stdout_path.read_text(encoding="utf-8", errors="replace"))
     after, _ = inspect(runner)
-    a = after["gpus"][gpu]["fields"]["driver_version"]["value"] if after["gpus"] else None
+    g_after, _ = select_gpu(after, g["details"].get("pci_bus_id") or str(g["index"]))
+    a = g_after["fields"]["driver_version"]["value"] if g_after else None
     b = g["fields"]["driver_version"]["value"]
+    extra = []
+    if getattr(adapter, "reports_device", False):
+        check = device_check(tool.get("tested_device"), g, count)
+        if check:
+            extra.append(check)
+    if g_after is None:
+        extra.append({"rule": "RUN-011", "state": "INCONCLUSIVE", "text": f"The selected card wasn't found after the run: {describe_gpu(g)}."})
     result = evaluate(Evidence(tool=tool, samples=samples, stop=stop, memory_total=g["fields"]["memory_total"]["value"],
                                driver_before=b, driver_after=a, driver_errors=driver_error_count(start, runner),
-                               temp_limit=limit, stop_reason=reason))
+                               temp_limit=limit, stop_reason=reason, extra=extra))
     result.update(tool_id=adapter.id, tool_version=adapter.version, tool_exit=stop, temp_limit=limit, gpu_name=g["fields"]["name"]["value"],
+                  gpu_index=g["index"], gpu_bus_id=g["details"].get("pci_bus_id"), tool_command=adapter.command(),
                   started_at=start.isoformat(timespec="seconds"), before=before, after=after)
     (out_dir / "test.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
     return result

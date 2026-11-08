@@ -215,7 +215,8 @@ def _notes(g: dict, xml: dict) -> list[str]:
         notes.append(f"{xml['architecture']} is in the group reported to end at driver branch R580 and CUDA Toolkit 12.9 for builds. Confirm on Nvidia's pages.")
     cur, mx = f["pcie_width_current"], f["pcie_width_max"]
     if cur["status"] == mx["status"] == "value" and cur["value"] < mx["value"]:
-        notes.append("PCIe width is below the card's maximum. Check the slot and any riser or adapter.")
+        notes.append(f"The PCIe link is x{cur['value']}, and the card supports x{mx['value']}. Slots, risers and adapters often limit "
+                     "width, so this alone doesn't point to a fault in the card. Check the slot's rated width in the motherboard's specs.")
     notes.append("Inspection does not stress the card, so it cannot show how the card behaves under load.")
     return notes
 
