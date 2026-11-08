@@ -1,6 +1,6 @@
 # Handoff: GPUDoc
 
-**Last updated:** 2026-11-07
+**Last updated:** 2026-11-08
 
 **Read first:** this file, then `NOTES.md`, then the relevant parts of `PLAN.md`. `GAPS.md` covers existing tools.
 
@@ -16,8 +16,10 @@
 
 ## Git state
 
-- **Committed:** `c8669f2`, Phase 1.
-- **Uncommitted, needing Tim's OK:** Phase 2 draft, tests, real test captures, docs, and new scripts.
+- **Committed:** `c8669f2`, Phase 1 (2026-11-07).
+- **Committed:** `d1bb626`, Phase 2 draft, tests, real test captures, docs, and new scripts (2026-11-08).
+- **Committed:** doc corrections to `HANDOFF.md` and `PLAN.md` (2026-11-08), the commit after `d1bb626`.
+- **Uncommitted:** nothing.
 
 ## Phase 1: `gpudoc inspect`
 
@@ -49,17 +51,18 @@ Draft in `src/gpudoc/testing.py`. It runs `memtest_vulkan`, then `llama-bench`, 
 - **Hardware:** i5-9600KF with no integrated graphics, 32 GB RAM, ASRock Z390 Phantom Gaming 4S/ac, 750 W power supply.
 - **GPUs:** GTX 1660 in the x16 slot, GTX 1060 in the second slot at x4. Both are Zotac.
 - **Windows:** on the 477 GB SATA drive, reached as `Admin@192.168.2.51` by key. Tools are in `C:\gpudoc`. A `gpudoc test` can't run while both cards are in. `nvidia-smi` showed only the 1660 on driver 560.94.
+- **Unresolved driver record:** the line above says 560.94, but the 1660 captures and `PLAN.md` section 15 say the 1660 ran on 610.88, and section 15 puts 560.94 on the 1060. Which driver Windows has now is unknown until a fresh `nvidia-smi` reading.
 - **Linux Mint 22.3:** on the 238 GB USB drive, as host `noodlecart-mint`, reached as `tim@192.168.2.51` by key. `tim` has a password and passwordless `sudo`, which needs tightening later.
 - **Boot:** Windows is the default. Press F11 and choose `TEAM TM8PS7256G` for Mint.
 - **SSH identity:** each OS has its own host key at the same address. In Git Bash use `-o UserKnownHostsFile=/dev/null`. In PowerShell use `NUL`.
-- **Mint state:** no Nvidia driver yet, and `nouveau` fails on the 1060 with `gpio: init failed`. Noodlecart was last booted into Mint.
+- **Mint state:** `nvidia-driver-580` version 580.178.04 was installed on 2026-11-08, and its kernel module built, but it isn't loaded until Noodlecart reboots into Mint (F11). Before the driver, `nouveau` failed on the 1060 with `gpio: init failed`. Secure Boot was off when checked from Windows.
 - **Riser:** not in use and not proven faulty.
 - **Off limits:** PT's RTX 4070, and Taichi's two GTX 1660 Tis, which run the JAZZ RAG.
 
 ## Next steps
 
-1. Get Tim's OK to commit the Phase 2 draft and docs.
-2. On Mint, install `nvidia-driver-580`, the standard version, not `-open`. Ubuntu lists it for the 1060, and the 1660 is expected to work on it but isn't listed. Reboot, then check both cards with `nvidia-smi`.
+1. Reboot Noodlecart into Mint (F11, `TEAM TM8PS7256G`) so the installed `nvidia-driver-580` module loads.
+2. Check both cards with `nvidia-smi`. Ubuntu lists 580 for the 1060; the 1660 is expected to work on it but isn't listed (unverified).
 3. If the 1060 still fails, investigate its power cable, slot, or the card itself.
 4. Copy GPUDoc to Mint and run `gpudoc inspect`, capturing real output as test data.
 5. Add GPU selection, then test each card.
