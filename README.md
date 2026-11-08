@@ -5,7 +5,7 @@ GPUDoc produces evidence-based reports on used GPUs. It's an early, private proj
 ## Current status
 
 - `gpudoc inspect` reads a card's identity, settings, and error history without stressing it.
-- `gpudoc test` is a Phase 2 draft and hasn't been run on real hardware yet.
+- `gpudoc test` is a Phase 2 draft. It runs `memtest_vulkan` and `llama-bench` with safety stops, and it passed on a real GTX 1660 under Windows. It needs Tim's go-ahead before stressing a card.
 - See [HANDOFF.md](HANDOFF.md) for current status, [PLAN.md](PLAN.md) for the plan, [GAPS.md](GAPS.md) for existing tools, and [NOTES.md](NOTES.md) for lessons and open items.
 
 ## Run it

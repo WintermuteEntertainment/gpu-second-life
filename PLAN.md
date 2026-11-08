@@ -40,6 +40,16 @@
 - A hosted upload service.
 - Physical dock or adapter design.
 
+### Design principle: power use (Tim, 2026-11-07)
+
+Power is something GPUDoc measures and something the project tries to use less of.
+
+- **Measure it:** Report GPU-only energy per run and output per watt-hour, and say when a figure excludes the rest of the machine.
+- **Use less:** Run tests only on request, with no background service or constant polling. Use the shortest test that answers the question, and let the card return to idle afterward.
+- **Compare fairly:** Show efficiency beside speed, so a slower, efficient card can come out ahead.
+- **Tune:** A later feature could find the power limit with the best output per watt.
+- **Prefer reuse:** Prove a used card can do the job before anyone buys a new one.
+
 ### Project rules
 
 - **No invented data.** Benchmarks, thresholds, examples, and test fixtures must come from real runs or be clearly labelled as empty. Any exception needs Tim's approval first.
@@ -652,7 +662,7 @@ Quebec's Bill 29 introduced planned-obsolescence and repair measures, including 
 | Machine | GPU | Evidence | Planned use |
 |---|---|---|---|
 | Noodlecart | GTX 1660, 6 GB, in the top slot. Tim plans to add the GTX 1060, 6 GB as a second card | Direct checks and Tim, 2026-11-06 and 07 | **Project test machine**, with Windows, WSL2, and later bare-metal Linux |
-| Location unknown | Up to two GTX 1660 Ti cards remembered by Windows | Windows device records and older notes | Possible extra test cards, if still owned |
+| Taichi | Two GTX 1660 Ti cards, which Noodlecart's Windows still remembers | Tim, 2026-11-07 | **Not available for testing**: they run the JAZZ RAG |
 | Spare, swapped into Noodlecart 2026-11-06 | GTX 1660, 6 GB. Tim's fault memory is vague: it came during multi-GPU Petals experiments in WSL2, so the card may never have been faulty. Passed the 5-minute memory test with driver 610.88, peaking at 62 C | Direct check and Tim, 2026-11-06 | **No evidence of a fault so far.** Not a known-bad test card |
 | PurpleThunder | RTX 4070 | Tim uses it mostly for gaming and some AI work | **Not for this project.** Code writing only |
 | BBB | Not checked | Runs live services | Not used |
@@ -733,7 +743,7 @@ A real faulty card is valuable test data, so treat it as a reference sample.
 
 ## 16. Open questions for Tim
 
-1. **GPU inventory:** Where are the two GTX 1660 Ti cards Windows remembers, if you still have them? Is the recalled faulty card really a 1660?
+1. **Adding the GTX 1060:** Does Noodlecart's power supply have capacity and connectors for both cards? Its GPU budget is zero for the rest of 2026 (Tim, 2026-11-07).
    **Noodlecart storage:** Is the spare 128 GB NVMe in the old Pat desktop available?
 2. **Spare GTX 1660:** What do you remember about the fault? Please write this down before any testing.
    **Noodlecart's future role:** If it later becomes the radio machine, testing should move first, because stress runs should not share a machine with a live air chain.

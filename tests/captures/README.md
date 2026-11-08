@@ -11,6 +11,8 @@ Everything here is real `nvidia-smi` output. Only identifiers are changed, using
 
 WSL goes through the Windows driver, so it doesn't count as a real Linux test.
 
+The `memtest_gtx*` folders hold real `memtest_vulkan` v0.5.0 output and telemetry from 2026-11-06. `memtest_gtx1660_stopped_10s` is the run a script bug ended early. No real failing `memtest_vulkan` log exists yet, so failure-text matching is unverified.
+
 ## Not yet verified on real output
 
 - Numeric ECC, page retirement, and row remapping values

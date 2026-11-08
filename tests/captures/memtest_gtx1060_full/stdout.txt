@@ -1,0 +1,20 @@
+https://github.com/GpuZelenograd/memtest_vulkan v0.5.0 by GpuZelenograd
+To finish testing use Ctrl+C
+
+1: Bus=0x01:00 DevId=0x1C03   6GB NVIDIA GeForce GTX 1060 6GB
+Standard 5-minute test of 1: Bus=0x01:00 DevId=0x1C03   6GB NVIDIA GeForce GTX 1060 6GB
+      1 iteration. Passed  0.0467 seconds  written:    2.2GB 155.1GB/sec        checked:    4.5GB 139.6GB/sec
+     23 iteration. Passed  1.0106 seconds  written:   49.5GB 155.6GB/sec        checked:   99.0GB 143.0GB/sec
+    132 iteration. Passed  5.0089 seconds  written:  245.2GB 155.6GB/sec        checked:  490.5GB 142.9GB/sec
+    784 iteration. Passed 30.0387 seconds  written: 1467.0GB 155.5GB/sec        checked: 2934.0GB 142.4GB/sec
+   1434 iteration. Passed 30.0110 seconds  written: 1462.5GB 155.5GB/sec        checked: 2925.0GB 141.9GB/sec
+   2081 iteration. Passed 30.0126 seconds  written: 1455.8GB 155.6GB/sec        checked: 2911.5GB 140.9GB/sec
+   2719 iteration. Passed 30.0090 seconds  written: 1435.5GB 155.0GB/sec        checked: 2871.0GB 138.4GB/sec
+   3352 iteration. Passed 30.0377 seconds  written: 1424.2GB 154.7GB/sec        checked: 2848.5GB 136.7GB/sec
+   3985 iteration. Passed 30.0168 seconds  written: 1424.2GB 154.7GB/sec        checked: 2848.5GB 136.9GB/sec
+   4615 iteration. Passed 30.0034 seconds  written: 1417.5GB 154.8GB/sec        checked: 2835.0GB 136.0GB/sec
+   5247 iteration. Passed 30.0246 seconds  written: 1422.0GB 154.7GB/sec        checked: 2844.0GB 136.5GB/sec
+   5878 iteration. Passed 30.0242 seconds  written: 1419.8GB 154.8GB/sec        checked: 2839.5GB 136.2GB/sec
+Standard 5-minute test PASSed! Just press Ctrl+C unless you plan long test run.
+Extended endless test started; testing more than 2 hours is usually unneeded
+use Ctrl+C to stop it when you decide it's enough

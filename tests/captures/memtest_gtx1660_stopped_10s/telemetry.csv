@@ -1,0 +1,2 @@
+temperature.gpu,fan.speed,power.draw,utilization.gpu,memory.used,pstate,clocks_event_reasons.hw_thermal_slowdown,clocks_event_reasons.sw_thermal_slowdown,clocks_event_reasons.sw_power_cap
+10,41, 38 %, 98.56 W, 98 %, 4831 MiB, P0, Not Active, Not Active, Not Active

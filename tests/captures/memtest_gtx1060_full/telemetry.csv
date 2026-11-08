@@ -1,0 +1,34 @@
+temperature.gpu,fan.speed,power.draw,utilization.gpu,memory.used,pstate,clocks_event_reasons.hw_thermal_slowdown,clocks_event_reasons.sw_thermal_slowdown,clocks_event_reasons.sw_power_cap
+10,65, 54 %, 118.96 W, 99 %, 5923 MiB, P0, Not Active, Not Active, Not Active
+20,68, 58 %, 116.68 W, 99 %, 5923 MiB, P0, Not Active, Not Active, Active
+30,71, 61 %, 116.73 W, 99 %, 5923 MiB, P0, Not Active, Not Active, Not Active
+40,74, 63 %, 118.53 W, 99 %, 5923 MiB, P0, Not Active, Not Active, Not Active
+50,76, 66 %, 119.06 W, 99 %, 5923 MiB, P0, Not Active, Not Active, Active
+60,78, 68 %, 113.08 W, 99 %, 5923 MiB, P0, Not Active, Not Active, Active
+70,80, 70 %, 121.74 W, 99 %, 5923 MiB, P0, Not Active, Not Active, Not Active
+80,82, 71 %, 113.75 W, 99 %, 5923 MiB, P0, Not Active, Not Active, Active
+90,82, 73 %, 114.08 W, 99 %, 5923 MiB, P0, Not Active, Active, Not Active
+100,82, 73 %, 106.90 W, 99 %, 5928 MiB, P0, Not Active, Not Active, Not Active
+110,82, 73 %, 101.51 W, 99 %, 5928 MiB, P0, Not Active, Not Active, Not Active
+120,82, 73 %, 97.73 W, 99 %, 5928 MiB, P0, Not Active, Not Active, Not Active
+130,82, 73 %, 92.67 W, 99 %, 5928 MiB, P0, Not Active, Active, Not Active
+140,82, 73 %, 94.73 W, 99 %, 5928 MiB, P0, Not Active, Not Active, Not Active
+150,82, 73 %, 91.05 W, 99 %, 5928 MiB, P0, Not Active, Not Active, Not Active
+160,82, 73 %, 94.11 W, 99 %, 5928 MiB, P0, Not Active, Active, Not Active
+170,82, 74 %, 98.11 W, 99 %, 5928 MiB, P0, Not Active, Active, Not Active
+180,82, 73 %, 95.49 W, 99 %, 5928 MiB, P0, Not Active, Not Active, Not Active
+190,82, 74 %, 96.40 W, 99 %, 5928 MiB, P0, Not Active, Not Active, Not Active
+200,82, 74 %, 89.51 W, 99 %, 5928 MiB, P0, Not Active, Active, Not Active
+210,82, 74 %, 92.50 W, 99 %, 5928 MiB, P0, Not Active, Not Active, Not Active
+220,82, 74 %, 89.33 W, 99 %, 5928 MiB, P0, Not Active, Not Active, Not Active
+230,81, 74 %, 74.52 W, 99 %, 5928 MiB, P0, Not Active, Not Active, Not Active
+240,82, 74 %, 93.30 W, 99 %, 5901 MiB, P0, Not Active, Not Active, Not Active
+250,83, 74 %, 96.85 W, 99 %, 5901 MiB, P0, Not Active, Not Active, Not Active
+260,82, 74 %, 89.44 W, 99 %, 5901 MiB, P0, Not Active, Active, Not Active
+270,82, 74 %, 95.54 W, 99 %, 5901 MiB, P0, Not Active, Not Active, Not Active
+280,77, 74 %, 35.38 W, 0 %, 5901 MiB, P0, Not Active, Not Active, Not Active
+290,74, 74 %, 34.94 W, 0 %, 5901 MiB, P0, Not Active, Not Active, Not Active
+300,82, 73 %, 102.39 W, 99 %, 5901 MiB, P0, Not Active, Active, Not Active
+310,82, 74 %, 102.01 W, 99 %, 5901 MiB, P0, Not Active, Not Active, Not Active
+320,82, 74 %, 97.02 W, 99 %, 5901 MiB, P0, Not Active, Active, Not Active
+330,82, 74 %, 95.60 W, 99 %, 5901 MiB, P0, Not Active, Active, Not Active
