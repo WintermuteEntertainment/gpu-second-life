@@ -508,6 +508,7 @@ This is the area where QA discipline matters most. A health tool that reports a 
 ### Test plan
 
 - **Repeatability:** Same card and setup, several runs, with the spread reported.
+- **Test hygiene (Tim, 2026-11-08):** Run tests from a clean, known OS image where possible. Record the setup with each result, and only compare results whose setups match, so leftovers or background load can't skew comparisons.
 - **Compatibility:** Every supported combination of GPU, driver, OS, and tool on the real matrix.
 - **False-pass review:** Before each release, ask how each test could report success when it did not actually exercise the card.
 - **False-fail review:** Confirm that cooling, adapter, and host problems are not blamed on the GPU.

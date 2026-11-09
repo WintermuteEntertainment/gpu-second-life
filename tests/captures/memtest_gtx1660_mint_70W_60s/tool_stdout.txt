@@ -1,0 +1,5 @@
+Standard 5-minute test of 2: Bus=0x01:00 DevId=0x2184   6GB NVIDIA GeForce GTX 1660
+      1 iteration. Passed  0.0515 seconds  written:    2.5GB 157.3GB/sec        checked:    5.0GB 140.5GB/sec
+     21 iteration. Passed  1.0236 seconds  written:   50.0GB 157.0GB/sec        checked:  100.0GB 141.8GB/sec
+    119 iteration. Passed  5.0180 seconds  written:  245.0GB 156.9GB/sec        checked:  490.0GB 141.8GB/sec
+    705 iteration. Passed 30.0246 seconds  written: 1465.0GB 156.8GB/sec        checked: 2930.0GB 141.7GB/sec

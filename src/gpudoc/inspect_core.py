@@ -186,6 +186,8 @@ def parse_xml(text: str) -> dict:
             "memory_total": _number(t("fb_memory_usage/total")),
             "slowdown_temp": _number(t("temperature/gpu_temp_slow_threshold")),
             "shutdown_temp": _number(t("temperature/gpu_temp_max_threshold")),
+            # Shown as "GPU Max Operating Temp" in nvidia-smi -q. Reads N/A on the GTX 1060 with driver 580.178.04.
+            "max_operating_temp": _number(t("temperature/gpu_temp_max_gpu_threshold")),
             "target_temp": _number(t("temperature/gpu_target_temperature")),
         })
     return out

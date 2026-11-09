@@ -11,6 +11,7 @@ import os
 import re
 import signal
 import subprocess
+import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -263,6 +264,8 @@ class Evidence:
     driver_errors: int | None
     temp_limit: int
     stop_reason: str = "tool_finished"
+    target_temp: float | None = None
+    xid_codes: list[int] = field(default_factory=list)
     extra: list[dict] = field(default_factory=list)
 
 
@@ -289,8 +292,11 @@ def evaluate(e: Evidence) -> dict:
 
     if e.tool.get("failure_lines"):
         add("MEM-001", "FAIL", "The tool's output contains failure text: " + e.tool["failure_lines"][0])
+    if 48 in e.xid_codes:
+        add("DRV-004", "FAIL", "Xid 48, an uncorrectable (double-bit) ECC memory error, was logged for this card during the run.")
     if e.driver_errors:
-        add("DRV-001", "ATTENTION", f"{e.driver_errors} Nvidia driver errors were logged during the run.")
+        codes = f" (Xid {', '.join(map(str, sorted(set(e.xid_codes))))})" if e.xid_codes else ""
+        add("DRV-001", "ATTENTION", f"{e.driver_errors} Nvidia driver errors{codes} were logged for this card during the run.")
     if e.driver_errors is None:
         add("DRV-002", "NOTE", "Driver error logs weren't collected for this run.")
     if e.driver_before and e.driver_after and e.driver_before != e.driver_after:
@@ -305,9 +311,19 @@ def evaluate(e: Evidence) -> dict:
         add("RUN-004", "INCONCLUSIVE", "No usable telemetry was recorded.")
     if e.stop_reason == "temperature_limit":
         add("THM-001", "INCONCLUSIVE", f"Stopped at the {e.temp_limit} C safety limit, so the test didn't finish.")
-    n = sum(1 for s in good if s.get("sw_thermal") == "Active" or s.get("hw_thermal") == "Active")
-    if n:
-        add("THM-002", "ATTENTION", f"Thermal slowdown appeared in {n} of {len(good)} samples. Check cooling first.")
+    hw = sum(1 for s in good if s.get("hw_thermal") == "Active")
+    sw = sum(1 for s in good if s.get("sw_thermal") == "Active")
+    if hw:
+        add("THM-002", "ATTENTION", f"Hardware thermal slowdown appeared in {hw} of {len(good)} samples. Check cooling first.")
+    cap = sum(1 for s in good if s.get("sw_power_cap") == "Active")
+    if cap:
+        summary["power_cap_samples"] = cap
+        add("PWR-001", "NOTE", f"The card's power limit held clocks back in {cap} of {len(good)} samples. "
+            "Speed and energy figures from this run reflect that limit.")
+    if sw:
+        target = f" The card's target temperature is {e.target_temp:.0f} C." if e.target_temp else ""
+        add("THM-003", "NOTE", f"The driver lowered clocks to control temperature in {sw} of {len(good)} samples, peaking at "
+            f"{summary['peak_temp']} C.{target} This is the driver's normal temperature control, not a fault by itself.")
     if peak_mem and e.memory_total:
         pct = 100 * peak_mem / e.memory_total
         summary["memory_coverage_percent"] = round(pct, 1)
@@ -316,26 +332,124 @@ def evaluate(e: Evidence) -> dict:
 
     states = {x["state"] for x in f}
     overall = next((s for s in ("FAIL", "INCONCLUSIVE", "ATTENTION") if s in states), "PASS")
-    return {"state": overall, "findings": f, "summary": summary, "rules_version": "draft-1"}
+    return {"state": overall, "findings": f, "summary": summary, "rules_version": "draft-3"}
 
 
 # ---------- orchestration ----------
-def driver_error_count(start: dt.datetime, runner) -> int | None:
-    """Counts Windows nvlddmkm events since the start. None means not collected."""
-    import sys
-    if sys.platform != "win32":
+# Nvidia's documented kernel log form, e.g. "NVRM: Xid (PCI:0000:01:00): 79, pid=...". No real Xid line has been
+# captured on Noodlecart yet, so this match is unverified. It can only add findings, never remove them.
+XID = re.compile(r"NVRM: Xid \(PCI:([0-9A-Fa-f]{4}):([0-9A-Fa-f]{2}):([0-9A-Fa-f]{2})\): (\d+)")
+
+
+def parse_xid(text: str, bus: tuple | None) -> dict:
+    """Xid events for the selected card (all cards if its bus is unknown), plus a count for other cards."""
+    mine, other = [], 0
+    for line in text.splitlines():
+        m = XID.search(line)
+        if not m:
+            continue
+        where = (int(m.group(1), 16), int(m.group(2), 16), int(m.group(3), 16))
+        if bus is None or where == bus[:3]:
+            mine.append((int(m.group(4)), line.strip()))
+        else:
+            other += 1
+    return {"count": len(mine), "codes": [c for c, _ in mine], "lines": [ln for _, ln in mine][:10], "other_cards": other}
+
+
+def driver_errors(start: dt.datetime, runner, bus_id: str | None) -> dict | None:
+    """Reads the driver's error log once, after the run. None means it couldn't be read."""
+    if sys.platform == "win32":
+        stamp = start.strftime("%Y-%m-%dT%H:%M:%S")
+        ps = ("(Get-WinEvent -FilterHashtable @{LogName='System';ProviderName='nvlddmkm';StartTime=[datetime]'" + stamp +
+              "'} -ErrorAction SilentlyContinue | Measure-Object).Count")
+        r = runner.run(["powershell", "-NoProfile", "-Command", ps])
+        if r.returncode == 0 and r.stdout.strip().isdigit():
+            return {"count": int(r.stdout.strip()), "codes": [], "source": "Windows System log, nvlddmkm"}
         return None
-    stamp = start.strftime("%Y-%m-%dT%H:%M:%S")
-    ps = ("(Get-WinEvent -FilterHashtable @{LogName='System';ProviderName='nvlddmkm';StartTime=[datetime]'" + stamp +
-          "'} -ErrorAction SilentlyContinue | Measure-Object).Count")
-    r = runner.run(["powershell", "-NoProfile", "-Command", ps])
-    return int(r.stdout.strip()) if r.returncode == 0 and r.stdout.strip().isdigit() else None
+    if sys.platform.startswith("linux"):
+        # One read of the kernel log since the start. Works without root for members of the adm group.
+        r = runner.run(["journalctl", "-k", "--since", f"@{int(start.timestamp())}", "-o", "short-iso", "--no-pager", "-q"])
+        if r.returncode != 0:
+            return None
+        return dict(parse_xid(r.stdout, parse_bus_id(bus_id)), source="kernel log, journalctl -k")
+    return None
+
+
+class Interrupted(Exception):
+    pass
+
+
+# SIGBREAK is Windows' Ctrl+Break. SIGHUP is Linux's "terminal closed".
+INTERRUPT_SIGNALS = [s for s in ("SIGINT", "SIGTERM", "SIGHUP", "SIGBREAK") if hasattr(signal, s)]
+
+
+def _raise_interrupted(signum, _frame):
+    raise Interrupted(signal.Signals(signum).name)
+
+
+def _set_handlers(handler) -> dict:
+    old = {}
+    for name in INTERRUPT_SIGNALS:
+        sig = getattr(signal, name)
+        old[sig] = signal.signal(sig, handler)
+    return old
+
+
+def _die_with_parent():
+    """Linux only: the kernel kills the tool if GPUDoc itself is killed, so a stress test can't run on unwatched."""
+    import ctypes
+    ctypes.CDLL("libc.so.6", use_errno=True).prctl(1, signal.SIGKILL)  # 1 = PR_SET_PDEATHSIG
+
+
+def kill_with_parent_windows(proc) -> bool:
+    """Windows: puts the tool in a job object set to kill everything in it when the job's last handle closes.
+    GPUDoc holds that handle, so Windows ends the tool and any child it starts later if GPUDoc exits for any reason."""
+    import ctypes
+    from ctypes import wintypes
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+
+    class Basic(ctypes.Structure):
+        _fields_ = [("PerProcessUserTimeLimit", ctypes.c_int64), ("PerJobUserTimeLimit", ctypes.c_int64), ("LimitFlags", wintypes.DWORD),
+                    ("MinimumWorkingSetSize", ctypes.c_size_t), ("MaximumWorkingSetSize", ctypes.c_size_t), ("ActiveProcessLimit", wintypes.DWORD),
+                    ("Affinity", ctypes.c_size_t), ("PriorityClass", wintypes.DWORD), ("SchedulingClass", wintypes.DWORD)]
+
+    class Extended(ctypes.Structure):
+        _fields_ = [("BasicLimitInformation", Basic), ("IoInfo", ctypes.c_ulonglong * 6), ("ProcessMemoryLimit", ctypes.c_size_t),
+                    ("JobMemoryLimit", ctypes.c_size_t), ("PeakProcessMemoryUsed", ctypes.c_size_t), ("PeakJobMemoryUsed", ctypes.c_size_t)]
+
+    k32.CreateJobObjectW.restype = wintypes.HANDLE
+    k32.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
+    k32.SetInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+    k32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+    job = k32.CreateJobObjectW(None, None)
+    if not job:
+        return False
+    info = Extended()
+    info.BasicLimitInformation.LimitFlags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+    ok = k32.SetInformationJobObject(job, 9, ctypes.byref(info), ctypes.sizeof(info))  # 9 = JobObjectExtendedLimitInformation
+    # The handle is deliberately never closed: it closes when GPUDoc's process ends, which ends the tool.
+    return bool(ok and k32.AssignProcessToJobObject(job, int(proc._handle)))
+
+
+def start_tool(cmd: list[str], cwd: Path, stdout, stderr) -> tuple[subprocess.Popen, str]:
+    """Starts a stress tool so it can't outlive GPUDoc. Returns the process and how that's guaranteed."""
+    linux = sys.platform.startswith("linux")
+    proc = subprocess.Popen(cmd, cwd=cwd, stdout=stdout, stderr=stderr, stdin=subprocess.DEVNULL, start_new_session=os.name != "nt",
+                            preexec_fn=_die_with_parent if linux else None)
+    if linux:
+        return proc, "linux_pdeathsig"
+    if os.name == "nt":
+        # A child the tool starts in the first instant, before this call, would escape the job; taskkill /T still stops it normally.
+        return proc, "windows_job_object" if kill_with_parent_windows(proc) else "none"
+    return proc, "none"
 
 
 def temp_limit_for(details: dict, requested: int | None) -> int:
-    limit = requested if requested is not None else DEFAULT_TEMP_LIMIT
-    slow = details.get("slowdown_temp")
-    return min(limit, int(slow) - SLOWDOWN_MARGIN) if slow else limit
+    """Stop limit from the card's own reported limits: 5 C below the lower of its slowdown temperature and
+    its maximum operating temperature. A requested limit can only lower it. With no card limits, 85 C."""
+    card = [int(v) - SLOWDOWN_MARGIN for v in (details.get("slowdown_temp"), details.get("max_operating_temp")) if v]
+    limit = min(card) if card else DEFAULT_TEMP_LIMIT
+    return min(limit, requested) if requested is not None else limit
 
 
 def run_suite(adapters: list, out_dir: Path, max_seconds: int = 420, temp_limit: int | None = None, cooldown: int = 60, runner=None,
@@ -349,7 +463,7 @@ def run_suite(adapters: list, out_dir: Path, max_seconds: int = 420, temp_limit:
         r = run_adapter(adapter, out_dir / f"{i + 1}_{adapter.id}", max_seconds=max_seconds, temp_limit=temp_limit, runner=runner,
                         gpu_select=gpu_select)
         results.append(r)
-        if r["state"] == "FAIL" or r["summary"].get("stop_reason") in {"temperature_limit", "sensor_failure", "wrong_device"}:
+        if r["state"] == "FAIL" or r["summary"].get("stop_reason") in {"temperature_limit", "sensor_failure", "wrong_device", "interrupted"}:
             break
     skipped = [a.id for a in adapters[len(results):]]
     suite = {"state": "INCONCLUSIVE" if skipped and combine(results) != "FAIL" else combine(results), "skipped": skipped, "steps": results}
@@ -386,63 +500,80 @@ def run_adapter(adapter, out_dir: Path, gpu_select: str | None = None, max_secon
     out_dir.mkdir(parents=True, exist_ok=False)
     stdout_path, stderr_path, tele_path = out_dir / "tool_stdout.txt", out_dir / "tool_stderr.txt", out_dir / "telemetry.jsonl"
     start = dt.datetime.now()
-    samples, reason = [], "time_limit"
-    with open(stdout_path, "wb") as so, open(stderr_path, "wb") as se, open(tele_path, "w", encoding="utf-8") as tele:
-        proc = subprocess.Popen(adapter.command(), cwd=out_dir, stdout=so, stderr=se, stdin=subprocess.DEVNULL,
-                                start_new_session=os.name != "nt")
-        t0 = time.monotonic()
-        while time.monotonic() - t0 < max_seconds:
-            time.sleep(interval)
-            s = sample(runner, fields, gpu)
-            s["elapsed"] = round(time.monotonic() - t0, 1)
-            samples.append(s)
-            tele.write(json.dumps(s) + "\n")
-            tele.flush()
-            if "error" in s:
-                reason = "sensor_failure"
-                break
-            if (s.get("temperature_gpu") or 0) >= limit:
-                reason = "temperature_limit"
-                break
-            if proc.poll() is not None:
-                reason = "tool_exited"
-                break
-            parsed = adapter.parse(stdout_path.read_text(encoding="utf-8", errors="replace"))
-            if parsed.get("tested_device") and device_check(parsed["tested_device"], g, count):
-                reason = "wrong_device"
-                break
-            if parsed["completed"]:
-                reason = "tool_finished"
-                break
-            if parsed["failure_lines"]:
-                reason = "tool_reported_failure"
-                break
-        stop = stop_and_confirm(proc)
-    leftovers = still_running(Path(adapter.exe).stem, runner)
-    if leftovers:
-        stop["stopped"] = False
-        stop["method"] = "processes_left_running"
-    stop["leftovers"] = len(leftovers)
-    tool = adapter.parse(stdout_path.read_text(encoding="utf-8", errors="replace"))
-    after, _ = inspect(runner)
-    g_after, _ = select_gpu(after, g["details"].get("pci_bus_id") or str(g["index"]))
-    a = g_after["fields"]["driver_version"]["value"] if g_after else None
-    b = g["fields"]["driver_version"]["value"]
-    extra = []
-    if getattr(adapter, "reports_device", False):
-        check = device_check(tool.get("tested_device"), g, count)
-        if check:
-            extra.append(check)
-    if g_after is None:
-        extra.append({"rule": "RUN-011", "state": "INCONCLUSIVE", "text": f"The selected card wasn't found after the run: {describe_gpu(g)}."})
-    result = evaluate(Evidence(tool=tool, samples=samples, stop=stop, memory_total=g["fields"]["memory_total"]["value"],
-                               driver_before=b, driver_after=a, driver_errors=driver_error_count(start, runner),
-                               temp_limit=limit, stop_reason=reason, extra=extra))
-    result.update(tool_id=adapter.id, tool_version=adapter.version, tool_exit=stop, temp_limit=limit, gpu_name=g["fields"]["name"]["value"],
-                  gpu_index=g["index"], gpu_bus_id=g["details"].get("pci_bus_id"), tool_command=adapter.command(),
-                  started_at=start.isoformat(timespec="seconds"), before=before, after=after)
-    (out_dir / "test.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
-    return result
+    samples, interrupted_by = [], None
+    # Ctrl+C, a terminal closing, or a kill request stops the tool and still writes an INCONCLUSIVE result.
+    old_handlers = _set_handlers(_raise_interrupted)
+    try:
+        with open(stdout_path, "wb") as so, open(stderr_path, "wb") as se, open(tele_path, "w", encoding="utf-8") as tele:
+            proc, guard = start_tool(adapter.command(), out_dir, so, se)
+            try:
+                reason = _watch(proc, adapter, runner, fields, gpu, g, count, limit, max_seconds, interval, stdout_path, samples, tele)
+            except Interrupted as e:
+                reason, interrupted_by = "interrupted", str(e)
+            _set_handlers(signal.SIG_IGN)  # further signals wait until the tool is stopped and the result is written
+            stop = stop_and_confirm(proc)
+        leftovers = still_running(Path(adapter.exe).stem, runner)
+        if leftovers:
+            stop["stopped"] = False
+            stop["method"] = "processes_left_running"
+        stop["leftovers"] = len(leftovers)
+        tool = adapter.parse(stdout_path.read_text(encoding="utf-8", errors="replace"))
+        after, _ = inspect(runner)
+        bus_id = g["details"].get("pci_bus_id")
+        g_after, _ = select_gpu(after, bus_id or str(g["index"]))
+        a = g_after["fields"]["driver_version"]["value"] if g_after else None
+        b = g["fields"]["driver_version"]["value"]
+        extra = []
+        stop["guard"] = guard
+        if guard == "none":
+            extra.append({"rule": "RUN-013", "state": "NOTE", "text": "The tool wasn't tied to GPUDoc's lifetime on this system, so a crash of GPUDoc itself could leave it running."})
+        if interrupted_by:
+            extra.append({"rule": "RUN-012", "state": "INCONCLUSIVE", "text": f"The run was interrupted ({interrupted_by}) before the tool finished."})
+        if getattr(adapter, "reports_device", False):
+            check = device_check(tool.get("tested_device"), g, count)
+            if check:
+                extra.append(check)
+        if g_after is None:
+            extra.append({"rule": "RUN-011", "state": "INCONCLUSIVE", "text": f"The selected card wasn't found after the run: {describe_gpu(g)}."})
+        log = driver_errors(start, runner, bus_id)
+        result = evaluate(Evidence(tool=tool, samples=samples, stop=stop, memory_total=g["fields"]["memory_total"]["value"],
+                                   driver_before=b, driver_after=a, driver_errors=log["count"] if log else None,
+                                   temp_limit=limit, stop_reason=reason, extra=extra, target_temp=g["details"].get("target_temp"),
+                                   xid_codes=log.get("codes", []) if log else []))
+        result.update(tool_id=adapter.id, tool_version=adapter.version, tool_exit=stop, temp_limit=limit, gpu_name=g["fields"]["name"]["value"],
+                      gpu_index=g["index"], gpu_bus_id=bus_id, tool_command=adapter.command(), driver_log=log,
+                      started_at=start.isoformat(timespec="seconds"), before=before, after=after)
+        (out_dir / "test.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
+        return result
+    finally:
+        for sig, handler in old_handlers.items():
+            signal.signal(sig, handler)
+
+
+def _watch(proc, adapter, runner, fields, gpu, g, count, limit, max_seconds, interval, stdout_path, samples, tele) -> str:
+    """Samples the card until something ends the run, and returns why it ended."""
+    t0 = time.monotonic()
+    while time.monotonic() - t0 < max_seconds:
+        time.sleep(interval)
+        s = sample(runner, fields, gpu)
+        s["elapsed"] = round(time.monotonic() - t0, 1)
+        samples.append(s)
+        tele.write(json.dumps(s) + "\n")
+        tele.flush()
+        if "error" in s:
+            return "sensor_failure"
+        if (s.get("temperature_gpu") or 0) >= limit:
+            return "temperature_limit"
+        if proc.poll() is not None:
+            return "tool_exited"
+        parsed = adapter.parse(stdout_path.read_text(encoding="utf-8", errors="replace"))
+        if parsed.get("tested_device") and device_check(parsed["tested_device"], g, count):
+            return "wrong_device"
+        if parsed["completed"]:
+            return "tool_finished"
+        if parsed["failure_lines"]:
+            return "tool_reported_failure"
+    return "time_limit"
 
 
 def _valid_fields(raw: dict[str, str]) -> set[str]:

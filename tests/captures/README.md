@@ -12,14 +12,16 @@ Everything here is real `nvidia-smi` output. Only identifiers are changed, using
 
 WSL goes through the Windows driver, so it doesn't count as a real Linux test.
 
-The `memtest_gtx*` folders hold real `memtest_vulkan` v0.5.0 output and telemetry from 2026-11-06. `memtest_gtx1660_stopped_10s` is the run a script bug ended early. No real failing `memtest_vulkan` log exists yet, so failure-text matching is unverified.
+The `memtest_gtx*_full` and `memtest_gtx1660_stopped_10s` folders hold real `memtest_vulkan` v0.5.0 output and telemetry from 2026-11-06, Windows, one card installed. The `memtest_gtx*_mint_driver58017804` folders are real `gpudoc test` runs on Linux Mint from 2026-11-08, with both cards installed and a device number passed. Their stdout has no header or device list. They hold only `tool_stdout.txt` and `telemetry.jsonl`, which contain no identifiers. `memtest_gtx1660_mint_70W_60s` is the real failure-path power-cap run from the same day: 60 s at the 1660's 70 W minimum. `memtest_gtx1660_stopped_10s` is the run a script bug ended early. No real failing `memtest_vulkan` log exists yet, so failure-text matching is unverified.
 
 ## Not yet verified on real output
 
 - Numeric ECC, page retirement, and row remapping values
 - `[Not Supported]`, `[Insufficient Permissions]`, and other bracketed error values
 - Older field names on older drivers, such as 560.94 on the GTX 1060
-- `memtest_vulkan` output with more than one GPU installed, including its device menu and numbering
-- `memtest_vulkan` and `llama-bench` on Linux
+- `memtest_vulkan`'s interactive device menu (passing a device number skips it)
+- `llama-bench` on Linux
+- A real Nvidia Xid line in the Linux kernel log
+- Hardware thermal slowdown (THM-002)
 
 Add a capture from real hardware before marking any of these as covered. Do not write sample output by hand.

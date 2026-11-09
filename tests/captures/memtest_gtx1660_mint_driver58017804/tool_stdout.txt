@@ -1,0 +1,16 @@
+Standard 5-minute test of 2: Bus=0x01:00 DevId=0x2184   6GB NVIDIA GeForce GTX 1660
+      1 iteration. Passed  0.0511 seconds  written:    2.5GB 157.3GB/sec        checked:    5.0GB 141.9GB/sec
+     21 iteration. Passed  1.0005 seconds  written:   50.0GB 156.8GB/sec        checked:  100.0GB 146.7GB/sec
+    122 iteration. Passed  5.0329 seconds  written:  252.5GB 156.8GB/sec        checked:  505.0GB 147.5GB/sec
+    724 iteration. Passed 30.0173 seconds  written: 1505.0GB 156.7GB/sec        checked: 3010.0GB 147.5GB/sec
+   1326 iteration. Passed 30.0297 seconds  written: 1505.0GB 156.8GB/sec        checked: 3010.0GB 147.3GB/sec
+   1927 iteration. Passed 30.0025 seconds  written: 1502.5GB 156.9GB/sec        checked: 3005.0GB 147.1GB/sec
+   2528 iteration. Passed 30.0194 seconds  written: 1502.5GB 156.8GB/sec        checked: 3005.0GB 147.0GB/sec
+   3129 iteration. Passed 30.0187 seconds  written: 1502.5GB 156.8GB/sec        checked: 3005.0GB 147.0GB/sec
+   3730 iteration. Passed 30.0244 seconds  written: 1502.5GB 156.8GB/sec        checked: 3005.0GB 147.0GB/sec
+   4331 iteration. Passed 30.0244 seconds  written: 1502.5GB 156.8GB/sec        checked: 3005.0GB 147.0GB/sec
+   4932 iteration. Passed 30.0155 seconds  written: 1502.5GB 156.9GB/sec        checked: 3005.0GB 147.0GB/sec
+   5533 iteration. Passed 30.0094 seconds  written: 1502.5GB 156.9GB/sec        checked: 3005.0GB 147.1GB/sec
+Standard 5-minute test PASSed! Just press Ctrl+C unless you plan long test run.
+Extended endless test started; testing more than 2 hours is usually unneeded
+use Ctrl+C to stop it when you decide it's enough

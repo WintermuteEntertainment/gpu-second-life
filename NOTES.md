@@ -24,6 +24,7 @@ Lessons, reminders, and storage history from real work on this project. See `HAN
 | I reported the stash as checked using sizes and dates. iCloud copies kept a cloud tag and couldn't be read normally. | I found it after BBB's D: was reformatted. All 7,336 files in those folders were then recovered and checksummed. | A successful copy isn't proof. Test normal reads and checksum anything irreplaceable before erasing a source. |
 | A Git Bash SSH command used `-o UserKnownHostsFile=NUL`. | It created a real file named `NUL`. | Use `/dev/null` in Git Bash and `NUL` in PowerShell. |
 | The GTX 1060 was missing from `nvidia-smi` on 2026-11-08 while `lspci` saw it. Its power cable wasn't connected, which had also happened once before, and the card wasn't fully seated. | Time went into driver and boot checks first. | When a card shows in `lspci` but not in `nvidia-smi`, ask Tim to check its power cable and seating before software diagnosis. |
+| A deploy command piped the code into `ssh`, but a trailing `</dev/null` replaced the pipe. The old `~/gpudoc/src` had already been renamed, so Mint was briefly left with an empty `src`. | No test ran. The copy was redone, and the old code kept its backup name. | Extract new code to a fresh folder first and swap names only after it arrives. Never redirect stdin on an `ssh` that reads a pipe. |
 
 ## What worked
 
@@ -67,8 +68,12 @@ A failed robocopy run reported 0, while a successful one reported 1, which is no
 - The CA$25,000 to CA$50,000 AI rig is mostly a dream for now.
 - Experiments can be worth doing even when a more practical option exists.
 - Power use is a design principle: reduce, reuse, recycle.
+- **Test hygiene (2026-11-08):** results are only compared when their setup matches. Use a clean, known Linux image for test runs so leftovers from one run or from daily use can't skew the next. Tim: "we have to be careful about our hygiene or we'll ruin all our results."
+- **Remote power for Noodlecart (2026-11-08):** set up Wake-on-LAN. Tim likes a smart plug plus the firmware's "power on after power loss" setting as a remote hard reset for hangs. A smart plug is Tim's purchase decision; he's considering more smart switches anyway.
 
 ## Parked ideas
+
+- **Network boot (PXE) for Noodlecart (2026-11-08):** useful later, especially for clean test images and the refurbisher case of booting many machines into GPUDoc without touching their drives. It needs a boot server on the LAN and DHCP changes on the household network, so plan it in small, reversible steps. Not needed for OS switching, which `efibootmgr --bootnext` and `bcdedit` already handle.
 
 - A possible subscription bundle of GPUDoc and NetMapperPro, as separate tools. No pricing, outreach, or public repos for now.
 - Waste-heat temperature sensor experiment.
