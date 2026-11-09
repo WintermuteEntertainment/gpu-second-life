@@ -71,6 +71,8 @@ A failed robocopy run reported 0, while a successful one reported 1, which is no
 - **Test hygiene (2026-11-08):** results are only compared when their setup matches. Use a clean, known Linux image for test runs so leftovers from one run or from daily use can't skew the next. Tim: "we have to be careful about our hygiene or we'll ruin all our results."
 - **Remote power for Noodlecart (2026-11-08):** set up Wake-on-LAN. Tim likes a smart plug plus the firmware's "power on after power loss" setting as a remote hard reset for hangs. A smart plug is Tim's purchase decision; he's considering more smart switches anyway.
 
+- **Taichi Tailscale (2026-11-09, at Tim's request):** after the card swap and reboot, Taichi was up on the LAN (`192.168.2.218`) but offline in Tailscale, which is what the name `taichi` resolves to. With nobody signed in, Tailscale on Windows sat at "starting". Fixed over SSH as `Morgan`, by key: `tailscale set --unattended=true`, giving `ForceDaemon: true`. Taichi came straight back online, and RDP to `taichi` answers. The Tailscale service was already set to Automatic. Tailscale 1.102.2. Nothing else on Taichi was touched.
+
 ## Parked ideas
 
 - **Network boot (PXE) for Noodlecart (2026-11-08):** useful later, especially for clean test images and the refurbisher case of booting many machines into GPUDoc without touching their drives. It needs a boot server on the LAN and DHCP changes on the household network, so plan it in small, reversible steps. Not needed for OS switching, which `efibootmgr --bootnext` and `bcdedit` already handle.
