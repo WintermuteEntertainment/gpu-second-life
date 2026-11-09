@@ -22,6 +22,8 @@
 - **Committed:** `7b40c22`, Noodlecart Mint notes: driver result, 1060 power cable, GRUB fix, xrdp, boot order (2026-11-08).
 - **Committed:** `abf46c3`, GPU selection for `gpudoc test`, the reworded PCIe note, 13 new tests, the scrubbed Mint two-card capture, and notes on the 1060 reseat and first Linux inspect run (2026-11-08).
 - **Committed (2026-11-08), the commit after `abf46c3`:** both cards' test results; the thermal rule split; per-card stop limits; kernel log (Xid) reading; interrupt safety on Linux and Windows; the power-cap note; `--gpu all`; `gpudoc sweep` and the first sweep; `scripts/failure_paths_mint.sh` and its results; three Mint memtest captures in `tests/captures/`; notes on network boot, Wake-on-LAN and test hygiene; 65 tests.
+- **Committed:** `48cfd80` is the commit above.
+- **Committed:** `.gitattributes` pinning `*.sh` to LF line endings, so scripts checked out on PT still run on Mint (2026-11-08), the commit after `48cfd80`.
 - **Uncommitted:** nothing.
 
 ## Phase 1: `gpudoc inspect`
