@@ -39,7 +39,7 @@ Working on the GTX 1660 over SSH, locally on Windows, and in WSL2, with JSON, Ma
 
 ## Phase 2: `gpudoc test`
 
-Draft in `src/gpudoc/testing.py`. It runs `memtest_vulkan` (memory), `gpu-burn` (compute, Linux only) and `llama-bench` (AI workload), each optional, with monitoring, a temperature stop, process-tree stopping, driver comparison, VRAM coverage, energy, and rules. 83 tests pass on PT (Python 3.11.9) and on Mint (Python 3.12.3), 2026-11-11. Rules version `draft-5`.
+Draft in `src/gpudoc/testing.py`. It runs `memtest_vulkan` (memory), `gpu-burn` (compute, Linux only) and `llama-bench` (AI workload), each optional, with monitoring, a temperature stop, process-tree stopping, driver comparison, VRAM coverage, energy, and rules. 89 tests pass on PT (Python 3.11.9), 2026-11-11; 83 on Mint before the tune tests were added. Rules version `draft-6`. `gpudoc tune` is a separate command; see the Noodlecart section.
 
 **Compute adapters, added 2026-11-10:**
 - **Flags:** `--tool-path` (memtest_vulkan) is now optional. `--gpu-burn PATH` with `--burn-seconds` (default 300) adds gpu-burn. `--llama-bench` with `--model` adds llama-bench. At least one tool is required.
@@ -78,6 +78,49 @@ Draft in `src/gpudoc/testing.py`. It runs `memtest_vulkan` (memory), `gpu-burn` 
 - **Tim's view (2026-11-11):** a clock cap while the monitor is off is usually fine, and is probably an energy-saving setting, possibly in the firmware. Unverified. Screen locking on Mint was left on.
 - **GPUDoc now flags it (rules `draft-5`):** CLK-001, a NOTE, appears when the GPU clock is exactly the same in every loaded sample (three or more) and no thermal or power-cap flag is active. The summary gives `pinned_gpu_clock_mhz`. It's a NOTE because a card can also sit at one clock when nothing limits it, and GPUDoc can't tell the two apart: the driver gave no maximum clock on these cards. Tested on the real locked run (flagged, 1,200 MHz) and the real unlocked run (not flagged). 83 tests pass on PT and Mint.
 - **Restart from Windows, tested 2026-11-11:** a plain `shutdown /r` from Windows came back up in Mint.
+- **Overclocking, read-only check on Mint, 2026-11-11 (planned "tune" feature, see NOTES):** Nvidia's library (NVML, `libnvidia-ml.so.1`, driver 580.178.04) reports clock offsets for both cards, with no desktop option needed. Nothing was changed.
+
+  | | GTX 1660 Ti | GTX 1060 |
+  |---|---|---|
+  | GPU clock offset now | 0 MHz | 0 MHz |
+  | GPU clock offset range | -1000 to +1000 MHz | -200 to +1200 MHz |
+  | Memory clock offset now | 0 MHz | 0 MHz |
+  | Memory clock offset range | -2000 to +6000 MHz | -2000 to +2000 MHz |
+  | Max GPU clock (`nvmlDeviceGetMaxClockInfo`) | 2,100 MHz | 1,911 MHz |
+  | Max memory clock | 6,001 MHz | 4,004 MHz |
+
+  - The ranges are what the driver accepts, not what is stable. Real stable offsets are usually a small part of them.
+  - **Set test, 2026-11-11, with Tim's OK:** `nvmlDeviceSetGpcClkVfOffset(+25)` on the Ti. As `tim` it returned Insufficient Permissions and changed nothing. As root it returned ok, read back as 25 MHz, and restoring 0 returned ok. Both cards read 0 MHz afterwards, and no driver errors were logged. So setting works on Linux and needs root, like the power limit. The card was idle; no load ran at +25.
+  - **Untested:** whether the offset changes real speed under load, the memory offset call (`nvmlDeviceSetMemClkVfOffset`), whether an offset survives a reboot or driver reload, and whether the same calls work on Windows with 581.80.
+  - `nvidia-settings` isn't installed on Mint and no Coolbits option is set. Neither is needed if the library route works.
+  - **Useful for CLK-001:** the library does give a maximum GPU clock, which `nvidia-smi` showed as N/A. The Ti's locked-desktop cap of 1,200 MHz against a 2,100 MHz maximum could let the finding tell a real cap from a card at its top speed. Not built.
+  - **Built 2026-11-11, `gpudoc tune` (draft):** `src/gpudoc/clocks.py` reads and sets GPU and memory clock offsets by PCI bus ID; `src/gpudoc/tune.py` steps the GPU clock offset up (default 25 MHz steps to +150), runs a stress tool at each step (`--gpu-burn` on Linux, or `--tool-path` for memtest_vulkan on either system), stops at the first problem, confirms the highest passing step with a longer run, and returns the card to stock in a `finally` block. `gpudoc tune --reset` only returns a card to stock. It refuses to start on a card that already has an offset. Memory clock tuning isn't built; the setter is.
+  - **Every `gpudoc test` result is now stamped (rules `draft-6`):** `clock_offsets` and `stock_settings` in `test.json`, with SET-001 (a NOTE) when either offset isn't zero and SET-002 when they couldn't be read.
+  - **Windows uses a different call:** on 581.80 the older `VfOffset` calls answer Not Supported, but `nvmlDeviceGetClockOffsets` / `nvmlDeviceSetClockOffsets` work, with the same ranges as Linux. Setting performance state P0 moved P1, P2, P3, P5 and P8 together. `clocks.py` tries the newer pair first and falls back to the older one. Tested on Windows on the Ti: GPU +25 MHz and memory +50 MHz each set, read back and reset; `tune --reset` works. The newer pair is untested on Linux.
+  - **First tune run, Windows, Ti, memtest_vulkan, 2026-11-11 17:01 local:** stock 439.8 GB/s, +25 MHz 439.2 GB/s, +50 MHz 446.7 GB/s (+1.6%), all three clean over 60 s at about 119 W. The +75 MHz step then died with `ERROR_DEVICE_LOST`. **That failure is not evidence about the overclock:** Windows Update started installing Nvidia driver 610.88 at 17:08:56 and finished at 17:12:03, replacing the driver under the running test. Results in `captures/noodlecart/tune-20261111-170104-windows-gtx1660ti` (private). The run is invalid from the +75 step on, and nothing was confirmed.
+  - **Windows is back in the broken driver state (17:17 local):** the Ti is on 610.88, and the 1060 shows device error 31 (`CM_PROB_FAILED_ADD`) because 610.88 doesn't include it. `nvidia-smi` lists only the Ti. The Ti's offsets read 0. To fix: stop Windows Update from replacing drivers (Tim's call, a system setting), then reinstall 581.80 from `C:\gpudoc\downloads\nvidia-581.80`.
+  - **GPUDoc gaps this exposed:** the step was scored FAIL by MEM-001 on the tool's error text, which would wrongly fail a healthy card in a health test when the real cause is a driver swap. A driver change or a missing card during a run should make the result INCONCLUSIVE, ahead of failure text. The Windows driver log count was 0 despite the driver being replaced, so that check missed it. After the swap, the restore step couldn't write (Not Supported), and tune correctly reported "returned to stock: NO"; a later read showed 0.
+  - **Windows Update driver delivery turned off by Tim, 2026-11-11:** `HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\ExcludeWUDriversInQualityUpdate` = 1, confirmed by reading it back. It affects all drivers; deleting the value undoes it. A reinstall of 581.80 right after returned exit code 1 with a restart pending from Windows Update's own install; Windows was restarted (it came back in Mint, as expected). **581.80 still needs reinstalling** the next time Windows is booted; until then the Ti is on 610.88 and the 1060 has no working driver there.
+  - **Memory offset on Linux, 2026-11-11 17:24 UTC:** the newer `ClockOffsets` calls also work on Mint 580.178.04, so both systems now use them. Memory +50 MHz on the Ti: refused as `tim` (Insufficient Permissions), set as root, read back 50 (the reported maximum memory clock moved from 6,001 to 6,026 MHz), and `gpudoc tune --reset` returned it to 0.
+  - **First full tune, Mint, Ti, gpu-burn, 2026-11-11 17:28 to 18:02 UTC, nobody logged in at the monitor:** every step passed.
+
+    | GPU clock offset | Speed | vs stock | Avg power | Gflop/s per W | Avg clock | Peak temp |
+    |---|---|---|---|---|---|---|
+    | Stock | 4,834 Gflop/s | | 119.4 W | 40.5 | 1,679 MHz | 72 C |
+    | +25 MHz | 4,774 | -1.2% | 119.4 W | 40.0 | 1,667 MHz | 75 C |
+    | +50 MHz | 4,868 | +0.7% | 118.7 W | 41.0 | 1,695 MHz | 75 C |
+    | +75 MHz | 4,914 | +1.7% | 119.0 W | 41.3 | 1,711 MHz | 74 C |
+    | +100 MHz | 4,934 | +2.1% | 118.2 W | 41.7 | 1,722 MHz | 75 C |
+    | +125 MHz | 5,000 | +3.4% | 119.0 W | 42.0 | 1,740 MHz | 75 C |
+    | +150 MHz | 5,038 | +4.2% | 119.5 W | 42.2 | 1,760 MHz | 75 C |
+    | +150 MHz, 300 s confirm | 4,991 | +3.2% | 118.8 W | 42.0 | 1,732 MHz | 78 C |
+
+    - The card sits at its 120 W power limit throughout, so a higher offset buys clock only where the power budget allows. Gains are small, about 3 to 4%, and the +25 MHz step came out slower than stock, which shows the run-to-run spread is around 1 to 2%. Treat differences below that as noise.
+    - Every step up to the default +150 MHz ceiling passed, so the card's real limit wasn't found. A higher ceiling would find it, at a higher risk of a driver crash.
+    - The card was returned to stock (both offsets read 0 afterwards), and the kernel log showed no Xid lines.
+    - Results in `captures/noodlecart/tune-20261111-172819-mint-gtx1660ti` (private). Trimmed copies of both tune runs are test captures in `tests/captures/tune_gtx1660ti`; 89 tests pass.
+  - **Still untested:** whether an offset survives a reboot, tune on the 1060, and a Windows tune rerun on a stable driver.
+  - **Tim's direction:** keep overclocked results clearly apart from stock ones. Most people want maximum performance; miners and similar users value efficiency more. So the feature should find both points.
 
 **Phase 2 exit check met on 2026-11-08:** PLAN section 13 requires real thermal, crash and interruption tests to pass on Noodlecart, and they did. Sensor failure wasn't tested, because doing it without faking would mean breaking `nvidia-smi` mid-run. gpu-burn and DCGM evaluation are still in Phase 2's scope.
 

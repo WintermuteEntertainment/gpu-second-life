@@ -1,0 +1,62 @@
+{
+  "state": "INCONCLUSIVE",
+  "findings": [
+    {
+      "rule": "SET-001",
+      "state": "NOTE",
+      "text": "This run was taken at non-stock clocks: GPU +50 MHz, memory +0 MHz. Don't compare its figures with stock runs, and don't read it as the card's condition at stock."
+    },
+    {
+      "rule": "RUN-002",
+      "state": "INCONCLUSIVE",
+      "text": "The tool didn't report completion. Stop reason: time_limit."
+    },
+    {
+      "rule": "PWR-001",
+      "state": "NOTE",
+      "text": "The card's power limit held clocks back in 12 of 12 samples. Speed and energy figures from this run reflect that limit."
+    },
+    {
+      "rule": "MEM-002",
+      "state": "NOTE",
+      "text": "Up to 5047 of 6144 MiB (82%) was in use, so this doesn't prove the whole memory was tested."
+    },
+    {
+      "rule": "LIM-001",
+      "state": "NOTE",
+      "text": "A pass only covers this tool, date, and setup. It doesn't predict lifespan."
+    }
+  ],
+  "summary": {
+    "samples": 12,
+    "peak_temp": 74,
+    "peak_memory_used": 5047,
+    "iterations": 1176,
+    "stop_reason": "time_limit",
+    "gpu_energy_wh": 1.85,
+    "avg_power_under_load_w": 119.2,
+    "avg_gpu_clock_under_load_mhz": 1862,
+    "power_cap_samples": 12,
+    "memory_coverage_percent": 82.1
+  },
+  "rules_version": "draft-6",
+  "tool_id": "memtest_vulkan",
+  "clock_offsets": {
+    "gpu_offset_mhz": 50,
+    "gpu_offset_min_mhz": -1000,
+    "gpu_offset_max_mhz": 1000,
+    "gpu_call": "ClockOffsets",
+    "mem_offset_mhz": 0,
+    "mem_offset_min_mhz": -2000,
+    "mem_offset_max_mhz": 6000,
+    "mem_call": "ClockOffsets",
+    "gpu_clock_max_mhz": 2100,
+    "mem_clock_max_mhz": 6001
+  },
+  "stock_settings": false,
+  "driver_log": {
+    "count": 0,
+    "codes": [],
+    "source": "Windows System log, nvlddmkm"
+  }
+}

@@ -530,6 +530,60 @@ class RealPinnedClock(unittest.TestCase):
         self.assertNotIn("CLK-001", [f["rule"] for f in r["findings"]])
 
 
+class RealTune(unittest.TestCase):
+    """Real `gpudoc tune` runs on the GTX 1660 Ti, 2026-11-11: Mint with gpu-burn (every step to +150 MHz passed), and
+    Windows with memtest_vulkan (Windows Update replaced the driver during the +75 MHz step). Step results are
+    trimmed copies of the real test.json files, without the inspect data that holds identifiers."""
+
+    FOLDER = CAPTURES / "tune_gtx1660ti"
+
+    def load(self, name):
+        return json.loads((self.FOLDER / name).read_text(encoding="utf-8"))
+
+    def test_offsets_stay_within_ceiling_and_driver_range(self):
+        from gpudoc.tune import plan_offsets
+        driver_max = self.load("mint_gpu_burn_tune.json")["clocks_before"]["gpu_offset_max_mhz"]
+        self.assertEqual(plan_offsets(25, 150, driver_max), [25, 50, 75, 100, 125, 150])
+        self.assertEqual(plan_offsets(25, 150, 60), [25, 50])
+        self.assertEqual(plan_offsets(0, 150, driver_max), [])
+
+    def test_real_passing_steps_count_as_stable(self):
+        from gpudoc.tune import step_ok
+        self.assertEqual(step_ok("gpu_burn", self.load("mint_gpu_burn_plus150_result.json")), (True, ""))
+        # memtest_vulkan steps are cut off by time on purpose, so their INCONCLUSIVE for not finishing is expected.
+        self.assertEqual(step_ok("memtest_vulkan", self.load("windows_memtest_plus50_result.json")), (True, ""))
+
+    def test_real_crashed_step_is_not_stable(self):
+        from gpudoc.tune import step_ok
+        ok, problem = step_ok("memtest_vulkan", self.load("windows_memtest_plus75_driver_swapped_result.json"))
+        self.assertFalse(ok)
+        self.assertIn("ERROR_DEVICE_LOST", problem)
+
+    def test_non_stock_steps_are_stamped(self):
+        step = self.load("mint_gpu_burn_plus150_result.json")
+        self.assertIs(step["stock_settings"], False)
+        self.assertEqual(step["clock_offsets"]["gpu_offset_mhz"], 150)
+        self.assertIn("SET-001", [f["rule"] for f in step["findings"]])
+
+    def test_mint_report_names_the_confirmed_setting_and_the_untested_limit(self):
+        from gpudoc.tune import to_text
+        result = self.load("mint_gpu_burn_tune.json")
+        text = to_text(result)
+        self.assertEqual(result["fastest_stable"]["gpu_clock_offset_mhz"], 150)
+        self.assertIn("Fastest stable setting found: +150 MHz", text)
+        self.assertIn("real limit wasn't found", text)
+        self.assertIn("returned to stock clocks: yes", text)
+
+    def test_windows_report_confirms_nothing_and_flags_the_failed_restore(self):
+        from gpudoc.tune import to_text
+        result = self.load("windows_memtest_tune.json")
+        text = to_text(result)
+        self.assertIsNone(result["fastest_stable"])
+        self.assertIn("No offset above stock was confirmed stable.", text)
+        self.assertIn("First problem at +75 MHz", text)
+        self.assertIn("NO, run gpudoc tune --reset", text)
+
+
 class RealLlamaDeviceSelection(unittest.TestCase):
     """llama-bench b12177 on Mint with the GTX 1660 Ti (bus 01) and GTX 1060 (bus 02), 2026-11-10."""
 

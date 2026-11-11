@@ -1,0 +1,55 @@
+{
+  "state": "PASS",
+  "findings": [
+    {
+      "rule": "SET-001",
+      "state": "NOTE",
+      "text": "This run was taken at non-stock clocks: GPU +150 MHz, memory +0 MHz. Don't compare its figures with stock runs, and don't read it as the card's condition at stock."
+    },
+    {
+      "rule": "PWR-001",
+      "state": "NOTE",
+      "text": "The card's power limit held clocks back in 14 of 19 samples. Speed and energy figures from this run reflect that limit."
+    },
+    {
+      "rule": "LIM-001",
+      "state": "NOTE",
+      "text": "A pass only covers this tool, date, and setup. It doesn't predict lifespan."
+    }
+  ],
+  "summary": {
+    "samples": 19,
+    "peak_temp": 75,
+    "peak_memory_used": 5154,
+    "iterations": 289,
+    "stop_reason": "tool_exited",
+    "gpu_energy_wh": 2.38,
+    "avg_power_under_load_w": 119.3,
+    "avg_gpu_clock_under_load_mhz": 1760,
+    "gflops": 5038,
+    "gflops_per_gpu_watt": 42.2,
+    "power_cap_samples": 14
+  },
+  "rules_version": "draft-6",
+  "tool_id": "gpu_burn",
+  "clock_offsets": {
+    "gpu_offset_mhz": 150,
+    "gpu_offset_min_mhz": -1000,
+    "gpu_offset_max_mhz": 1000,
+    "gpu_call": "ClockOffsets",
+    "mem_offset_mhz": 0,
+    "mem_offset_min_mhz": -2000,
+    "mem_offset_max_mhz": 6000,
+    "mem_call": "ClockOffsets",
+    "gpu_clock_max_mhz": 2250,
+    "mem_clock_max_mhz": 6001
+  },
+  "stock_settings": false,
+  "driver_log": {
+    "count": 0,
+    "codes": [],
+    "lines": [],
+    "other_cards": 0,
+    "source": "kernel log, journalctl -k"
+  }
+}

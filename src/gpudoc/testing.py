@@ -16,6 +16,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from . import clocks
 from .inspect_core import LocalRunner, inspect, parse_cell
 
 SAMPLE_FIELDS = [
@@ -513,7 +514,7 @@ def evaluate(e: Evidence) -> dict:
 
     states = {x["state"] for x in f}
     overall = next((s for s in ("FAIL", "INCONCLUSIVE", "ATTENTION") if s in states), "PASS")
-    return {"state": overall, "findings": f, "summary": summary, "rules_version": "draft-5"}
+    return {"state": overall, "findings": f, "summary": summary, "rules_version": "draft-6"}
 
 
 # ---------- orchestration ----------
@@ -683,6 +684,8 @@ def run_adapter(adapter, out_dir: Path, gpu_select: str | None = None, max_secon
     stdout_path, stderr_path, tele_path = out_dir / "tool_stdout.txt", out_dir / "tool_stderr.txt", out_dir / "telemetry.jsonl"
     start = dt.datetime.now()
     samples, interrupted_by = [], None
+    bus_now = g["details"].get("pci_bus_id")
+    offsets = clocks.read(bus_now) if bus_now and runner.mode == "local" else {"error": "not read"}
     # A tool that doesn't name its card by bus is checked by watching memory use on every card.
     usage = None
     if count > 1 and not getattr(adapter, "reports_device", False):
@@ -712,6 +715,12 @@ def run_adapter(adapter, out_dir: Path, gpu_select: str | None = None, max_secon
         b = g["fields"]["driver_version"]["value"]
         extra = []
         stop["guard"] = guard
+        if offsets.get("error"):
+            extra.append({"rule": "SET-002", "state": "NOTE", "text": "The card's clock offsets couldn't be read, so it isn't known whether it ran at stock settings."})
+        elif clocks.non_stock(offsets):
+            extra.append({"rule": "SET-001", "state": "NOTE", "text": (
+                f"This run was taken at non-stock clocks: GPU {offsets['gpu_offset_mhz']:+d} MHz, memory {offsets['mem_offset_mhz']:+d} MHz. "
+                "Don't compare its figures with stock runs, and don't read it as the card's condition at stock.")})
         if guard == "none":
             extra.append({"rule": "RUN-013", "state": "NOTE", "text": "The tool wasn't tied to GPUDoc's lifetime on this system, so a crash of GPUDoc itself could leave it running."})
         if interrupted_by:
@@ -735,6 +744,7 @@ def run_adapter(adapter, out_dir: Path, gpu_select: str | None = None, max_secon
                                    xid_codes=log.get("codes", []) if log else []))
         result.update(tool_id=adapter.id, tool_version=adapter.version, tool_exit=stop, temp_limit=limit, gpu_name=g["fields"]["name"]["value"],
                       gpu_index=g["index"], gpu_bus_id=bus_id, tool_command=adapter.command(), driver_log=log,
+                      clock_offsets=offsets, stock_settings=None if offsets.get("error") else not clocks.non_stock(offsets),
                       memory_rise_mib={f"{b[1]:02x}:{b[2]:02x}.{b[3]}": r for b, r in load_rise(usage).items()} if usage else None,
                       started_at=start.isoformat(timespec="seconds"), before=before, after=after)
         (out_dir / "test.json").write_text(json.dumps(result, indent=2), encoding="utf-8")

@@ -146,6 +146,45 @@ def cmd_sweep(a) -> int:
     return 0 if result.get("steps") and not result.get("error") else 2
 
 
+def cmd_tune(a) -> int:
+    from .testing import describe_gpu, select_gpu
+    from .tune import reset, run_tune, to_text
+    if a.reset:
+        r = reset(a.gpu)
+        if r.get("error"):
+            print(f"Nothing was changed. {r['error']}")
+            return 3
+        ok = r["set"]["ok"] and not r["after"].get("error") and not r["after"]["gpu_offset_mhz"] and not r["after"]["mem_offset_mhz"]
+        print(f"{r['gpu']}: clock offsets " + ("are at stock (0 MHz)." if ok else f"could NOT be reset: {r['set'].get('error') or r['after']}"))
+        return 0 if ok else 2
+    if bool(a.gpu_burn) == bool(a.tool_path):
+        print("Choose one workload: --gpu-burn (Linux) or --tool-path (memtest_vulkan).")
+        return 3
+    if a.gpu_burn and not sys.platform.startswith("linux"):
+        print("Nothing was run. gpu-burn only runs on Linux; use --tool-path with memtest_vulkan here.")
+        return 3
+    report, _ = inspect(LocalRunner())
+    g, why = select_gpu(report, a.gpu)
+    if g is None:
+        print(f"Nothing was run. {why}")
+        return 3
+    tool_id, path = ("gpu_burn", a.gpu_burn) if a.gpu_burn else ("memtest_vulkan", a.tool_path)
+    print("This raises the card's GPU clock above stock in steps and stress-tests each one. Too high a setting can crash the "
+          "graphics driver or hang the machine. It needs root (sudo without a prompt) on Linux or an administrator shell on Windows. "
+          "The card is returned to stock at the end, and nothing is kept.")
+    print(f"Card: {describe_gpu(g)}. Workload: {tool_id}. Steps of {a.step} MHz up to +{a.max_offset} MHz, {a.seconds} s each, "
+          f"then a {a.confirm_seconds} s confirmation run.")
+    if not a.yes and input("Type YES to continue: ").strip() != "YES":
+        print("Cancelled. Nothing was run.")
+        return 3
+    d = Path(a.out) / ("tune-" + dt.datetime.now().strftime("%Y%m%d-%H%M%S"))
+    result = run_tune(tool_id, path, g["details"].get("pci_bus_id") or str(g["index"]), a.step, a.max_offset, a.seconds, a.confirm_seconds, d)
+    print(to_text(result))
+    if result.get("baseline"):
+        print(f"Saved to {d}")
+    return 0 if result.get("baseline") and not result.get("error") and result.get("restored_to_stock") else 2
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="gpudoc", description="Evidence-based reports on used GPUs.")
     p.add_argument("--version", action="version", version=__version__)
@@ -177,6 +216,18 @@ def main(argv=None) -> int:
     s.add_argument("--out", default="gpudoc-runs", help="Folder for results")
     s.add_argument("--yes", action="store_true", help="Skip the confirmation prompt")
     s.set_defaults(func=cmd_sweep)
+    u = sub.add_parser("tune", help="Draft: find the highest stable GPU clock offset on one card, step by step. Asks for confirmation.")
+    u.add_argument("--gpu", help="Card, by nvidia-smi index or PCI bus ID. Required when more than one GPU is installed")
+    u.add_argument("--gpu-burn", help="Path to gpu_burn, the workload that proves each step (Linux only)")
+    u.add_argument("--tool-path", help="Path to memtest_vulkan, as the workload instead of gpu-burn")
+    u.add_argument("--step", type=int, default=25, help="MHz added per step. Default 25")
+    u.add_argument("--max-offset", type=int, default=150, help="Highest offset to try, in MHz. Default 150")
+    u.add_argument("--seconds", type=int, default=60, help="Seconds per step. Default 60")
+    u.add_argument("--confirm-seconds", type=int, default=300, help="Length of the confirmation run. Default 300")
+    u.add_argument("--reset", action="store_true", help="Only return the card's clock offsets to stock, then exit")
+    u.add_argument("--out", default="gpudoc-runs", help="Folder for results")
+    u.add_argument("--yes", action="store_true", help="Skip the confirmation prompt")
+    u.set_defaults(func=cmd_tune)
     a = p.parse_args(argv)
     return a.func(a)
 

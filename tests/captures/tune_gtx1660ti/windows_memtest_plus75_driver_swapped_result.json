@@ -1,0 +1,68 @@
+{
+  "state": "FAIL",
+  "findings": [
+    {
+      "rule": "SET-001",
+      "state": "NOTE",
+      "text": "This run was taken at non-stock clocks: GPU +75 MHz, memory +0 MHz. Don't compare its figures with stock runs, and don't read it as the card's condition at stock."
+    },
+    {
+      "rule": "RUN-011",
+      "state": "INCONCLUSIVE",
+      "text": "The selected card wasn't found after the run: GPU 0: NVIDIA GeForce GTX 1660 Ti at 00000000:01:00.0."
+    },
+    {
+      "rule": "MEM-001",
+      "state": "FAIL",
+      "text": "The tool's output contains failure text: Runtime error: ERROR_DEVICE_LOST while getting () in context queue_submit"
+    },
+    {
+      "rule": "RUN-002",
+      "state": "INCONCLUSIVE",
+      "text": "The tool didn't report completion. Stop reason: sensor_failure."
+    },
+    {
+      "rule": "RUN-003",
+      "state": "INCONCLUSIVE",
+      "text": "One or more telemetry readings failed."
+    },
+    {
+      "rule": "RUN-004",
+      "state": "INCONCLUSIVE",
+      "text": "No usable telemetry was recorded."
+    },
+    {
+      "rule": "LIM-001",
+      "state": "NOTE",
+      "text": "A pass only covers this tool, date, and setup. It doesn't predict lifespan."
+    }
+  ],
+  "summary": {
+    "samples": 1,
+    "peak_temp": null,
+    "peak_memory_used": null,
+    "iterations": 34,
+    "stop_reason": "sensor_failure",
+    "gpu_energy_wh": null
+  },
+  "rules_version": "draft-6",
+  "tool_id": "memtest_vulkan",
+  "clock_offsets": {
+    "gpu_offset_mhz": 75,
+    "gpu_offset_min_mhz": -1000,
+    "gpu_offset_max_mhz": 1000,
+    "gpu_call": "ClockOffsets",
+    "mem_offset_mhz": 0,
+    "mem_offset_min_mhz": -2000,
+    "mem_offset_max_mhz": 6000,
+    "mem_call": "ClockOffsets",
+    "gpu_clock_max_mhz": 2100,
+    "mem_clock_max_mhz": 6001
+  },
+  "stock_settings": false,
+  "driver_log": {
+    "count": 0,
+    "codes": [],
+    "source": "Windows System log, nvlddmkm"
+  }
+}

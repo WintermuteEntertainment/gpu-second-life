@@ -23,6 +23,8 @@ Compute tools, all from Noodlecart on Linux Mint with the GTX 1660 Ti (bus 01) a
 
 - `llama_bench_gtx1660ti_mint_desktop_locked` and `llama_bench_gtx1660ti_mint_desktop_unlocked`: stdout and telemetry from two real `gpudoc test` llama-bench runs on the Ti, 2026-11-11. In the first, Mint's desktop was locked and the card ran at 1,200 MHz with no reason reported. The second ran three minutes after the desktop was unlocked. The home folder name in the model path is replaced with `USER`.
 
+- `tune_gtx1660ti`: the `tune.json` from two real `gpudoc tune` runs on the Ti, 2026-11-11, plus trimmed copies of three step results (state, findings, summary, clock offsets and driver log only; the inspect data with identifiers is left out). `mint_gpu_burn_*` is the Mint run where every step to +150 MHz passed. `windows_memtest_*` is the Windows run where Windows Update replaced the driver during the +75 MHz step, so that step's crash is a driver swap, not an overclock failure.
+
 ## Not yet verified on real output
 
 - A failing gpu-burn run (result errors or a FAULTY verdict)

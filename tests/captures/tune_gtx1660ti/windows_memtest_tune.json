@@ -1,0 +1,139 @@
+{
+  "gpu": "NVIDIA GeForce GTX 1660 Ti",
+  "bus_id": "00000000:01:00.0",
+  "workload": "memtest_vulkan",
+  "clocks_before": {
+    "gpu_offset_mhz": 0,
+    "gpu_offset_min_mhz": -1000,
+    "gpu_offset_max_mhz": 1000,
+    "gpu_call": "ClockOffsets",
+    "mem_offset_mhz": 0,
+    "mem_offset_min_mhz": -2000,
+    "mem_offset_max_mhz": 6000,
+    "mem_call": "ClockOffsets",
+    "gpu_clock_max_mhz": 2100,
+    "mem_clock_max_mhz": 6001
+  },
+  "step_mhz": 25,
+  "ceiling_mhz": 150,
+  "seconds_per_step": 60,
+  "confirm_seconds": 300,
+  "baseline": {
+    "gpu_clock_offset_mhz": 0,
+    "start_temp": 37,
+    "peak_temp": 69,
+    "avg_power_w": 119.28,
+    "avg_gpu_clock_mhz": 1848,
+    "power_cap_samples": 12,
+    "samples": 12,
+    "stop_reason": "time_limit",
+    "state": "INCONCLUSIVE",
+    "speed": 439.8,
+    "unit": "GB/s",
+    "speed_per_watt": 3.687,
+    "ok": true,
+    "problem": ""
+  },
+  "steps": [
+    {
+      "gpu_clock_offset_mhz": 25,
+      "start_temp": 45,
+      "peak_temp": 74,
+      "avg_power_w": 118.95,
+      "avg_gpu_clock_mhz": 1841,
+      "power_cap_samples": 12,
+      "samples": 12,
+      "stop_reason": "time_limit",
+      "state": "INCONCLUSIVE",
+      "speed": 439.2,
+      "unit": "GB/s",
+      "speed_per_watt": 3.692,
+      "ok": true,
+      "problem": ""
+    },
+    {
+      "gpu_clock_offset_mhz": 50,
+      "start_temp": 45,
+      "peak_temp": 74,
+      "avg_power_w": 119.29,
+      "avg_gpu_clock_mhz": 1862,
+      "power_cap_samples": 12,
+      "samples": 12,
+      "stop_reason": "time_limit",
+      "state": "INCONCLUSIVE",
+      "speed": 446.7,
+      "unit": "GB/s",
+      "speed_per_watt": 3.745,
+      "ok": true,
+      "problem": ""
+    },
+    {
+      "gpu_clock_offset_mhz": 75,
+      "start_temp": 45,
+      "peak_temp": null,
+      "avg_power_w": null,
+      "avg_gpu_clock_mhz": null,
+      "power_cap_samples": 0,
+      "samples": 1,
+      "stop_reason": "sensor_failure",
+      "state": "FAIL",
+      "speed": null,
+      "unit": "GB/s",
+      "ok": false,
+      "problem": "MEM-001: The tool's output contains failure text: Runtime error: ERROR_DEVICE_LOST while getting () in context queue_submit"
+    }
+  ],
+  "confirm_runs": [
+    {
+      "gpu_clock_offset_mhz": 50,
+      "ok": false,
+      "problem": "Setting +50 MHz failed: set GPU clock offset to 50 MHz: Not Supported",
+      "not_run": true
+    },
+    {
+      "gpu_clock_offset_mhz": 25,
+      "ok": false,
+      "problem": "Setting +25 MHz failed: set GPU clock offset to 25 MHz: Not Supported",
+      "not_run": true
+    }
+  ],
+  "fastest_stable": null,
+  "most_efficient": {
+    "gpu_clock_offset_mhz": 50,
+    "start_temp": 45,
+    "peak_temp": 74,
+    "avg_power_w": 119.29,
+    "avg_gpu_clock_mhz": 1862,
+    "power_cap_samples": 12,
+    "samples": 12,
+    "stop_reason": "time_limit",
+    "state": "INCONCLUSIVE",
+    "speed": 446.7,
+    "unit": "GB/s",
+    "speed_per_watt": 3.745,
+    "ok": true,
+    "problem": ""
+  },
+  "first_failure": {
+    "gpu_clock_offset_mhz": 75,
+    "start_temp": 45,
+    "peak_temp": null,
+    "avg_power_w": null,
+    "avg_gpu_clock_mhz": null,
+    "power_cap_samples": 0,
+    "samples": 1,
+    "stop_reason": "sensor_failure",
+    "state": "FAIL",
+    "speed": null,
+    "unit": "GB/s",
+    "ok": false,
+    "problem": "MEM-001: The tool's output contains failure text: Runtime error: ERROR_DEVICE_LOST while getting () in context queue_submit"
+  },
+  "reached_ceiling": false,
+  "error": null,
+  "restored_to_stock": false,
+  "clocks_after": {
+    "error": "read offset: Not Supported"
+  },
+  "temp_limit": 85
+}
