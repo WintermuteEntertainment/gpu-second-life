@@ -207,7 +207,7 @@ class RealProcessControl(unittest.TestCase):
 class RealFieldData(unittest.TestCase):
     def test_sample_fields_exist_on_the_real_driver(self):
         text = (CAPTURES / "gtx1660_driver61088_windows" / "help_query_gpu.txt").read_text(encoding="utf-8")
-        self.assertEqual(len(resolve_sample_fields(parse_valid_fields(text))), 10)
+        self.assertEqual(len(resolve_sample_fields(parse_valid_fields(text))), 13)
 
     def test_stop_limit_comes_from_each_cards_reported_limits(self):
         # Real Mint capture: 1660 slowdown 93 C and max operating 91 C; 1060 slowdown 99 C, max operating N/A.

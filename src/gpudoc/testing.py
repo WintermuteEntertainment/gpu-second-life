@@ -23,6 +23,9 @@ SAMPLE_FIELDS = [
     ("gpu_util", "utilization.gpu", "int"), ("memory_used", "memory.used", "int"), ("pstate", "pstate", "str"),
     ("hw_thermal", "clocks_event_reasons.hw_thermal_slowdown", "str"), ("sw_thermal", "clocks_event_reasons.sw_thermal_slowdown", "str"),
     ("sw_power_cap", "clocks_event_reasons.sw_power_cap", "str"), ("driver_version", "driver_version", "str"),
+    # Clock speeds and the full reasons value show a card running slow even when no single slowdown flag is set.
+    ("clock_gpu", "clocks.current.graphics", "int"), ("clock_mem", "clocks.current.memory", "int"),
+    ("slowdown_reasons", "clocks_event_reasons.active", "str"),
 ]
 OLD_NAMES = {"clocks_event_reasons": "clocks_throttle_reasons"}
 DEFAULT_TEMP_LIMIT = 85
@@ -443,6 +446,11 @@ def evaluate(e: Evidence) -> dict:
                "iterations": e.tool.get("iterations"), "stop_reason": e.stop_reason, "gpu_energy_wh": energy_wh(good)}
     tps = e.tool.get("generation_tokens_per_second")
     watts = [s["power_draw"] for s in good if s.get("power_draw") is not None and (s.get("gpu_util") or 0) > 50]
+    clocks = [s["clock_gpu"] for s in good if s.get("clock_gpu") is not None and (s.get("gpu_util") or 0) > 50]
+    if watts:
+        summary["avg_power_under_load_w"] = round(sum(watts) / len(watts), 1)
+    if clocks:
+        summary["avg_gpu_clock_under_load_mhz"] = round(sum(clocks) / len(clocks))
     if e.tool.get("gflops") is not None:
         summary["gflops"] = e.tool["gflops"]
         if watts:

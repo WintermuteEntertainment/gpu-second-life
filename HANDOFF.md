@@ -61,6 +61,16 @@ Draft in `src/gpudoc/testing.py`. It runs `memtest_vulkan` (memory), `gpu-burn` 
 - **Card proof held:** memory rose 4,695 MiB (gpu-burn) and 4,544 MiB (llama) on the Ti with 2 and 0 MiB on the 1060, then 5,454 and 4,540 MiB on the 1060 with 3 and 10 MiB on the Ti.
 - **Clean:** no Xid lines, no leftovers, Linux guard active on all four steps.
 - **Open question, 1660 Ti speed:** in this run the Ti drew less power and ran slower than in the standalone checks about 30 minutes earlier, with no slowdown flag active in any sample. llama-bench: 30.6 generation tokens/s at about 65 W on average (steady readings near 70 W), against 41.3 with a 118 W peak. gpu-burn: 4,462 Gflop/s at about 101 W, against about 4,860 at about 120 W on 2026-11-09. Its power limit reads 120 W (the default). The 1060's figures barely moved (27.2 against 27.4). Cause unknown. Known differences: llama-bench ran 60 s after a 5-minute gpu-burn, and a desktop session was logged in at the monitor (two Xorg processes on the Ti). Until this is explained, don't compare the Ti's speed figures between runs. GPUDoc doesn't yet record clock speeds or the full slowdown-reason value, which would help here.
+- **Follow-up, 2026-11-11 06:55 to 07:05 UTC, Ti only, fresh boot, nobody logged in at the monitor:** the slowdown did not come back, and gpu-burn beforehand is ruled out as its cause. Results in `captures/noodlecart/ti-slowdown-20261111-mint` (private).
+
+  | Step | Speed | Avg power under load | Avg GPU clock under load | Peak temp |
+  |---|---|---|---|---|
+  | llama-bench, cold | 42.4 generation tokens/s | 100.8 W | 1,842 MHz | 55 C |
+  | gpu-burn 300 s | 4,736 Gflop/s | 117.8 W | 1,642 MHz | 77 C |
+  | llama-bench, 60 s after gpu-burn | 41.5 generation tokens/s | 102.9 W | 1,803 MHz | 68 C |
+
+  In the slow run the Ti drew about 101 W in gpu-burn with the power cap never active; here it drew 117.8 W with the cap active in 60 of 66 samples. So in the slow run something held the card below its power limit without setting any slowdown flag GPUDoc read. The one known difference left is that `tim` was logged in to a desktop at the monitor during the slow run. Untested; it needs Tim logged in at the monitor for a rerun. Telemetry now records `clock_gpu`, `clock_mem` and `slowdown_reasons` (the full reasons value), and the summary gives average power and GPU clock under load, so a repeat would show up in the data.
+- **Restart from Windows, tested 2026-11-11:** a plain `shutdown /r` from Windows came back up in Mint.
 
 **Phase 2 exit check met on 2026-11-08:** PLAN section 13 requires real thermal, crash and interruption tests to pass on Noodlecart, and they did. Sensor failure wasn't tested, because doing it without faking would mean breaking `nvidia-smi` mid-run. gpu-burn and DCGM evaluation are still in Phase 2's scope.
 
@@ -149,6 +159,21 @@ Draft in `src/gpudoc/testing.py`. It runs `memtest_vulkan` (memory), `gpu-burn` 
 - **GPUs:** GTX 1660 in the x16 slot, GTX 1060 in the second slot at x4. Both are Zotac.
 - **Windows:** on the 477 GB SATA drive, reached as `Admin@192.168.2.51` by key. Tools are in `C:\gpudoc`. A `gpudoc test` can't run while both cards are in. `nvidia-smi` showed only the 1660 on driver 560.94.
 - **Unresolved driver record:** the line above says 560.94, but the 1660 captures and `PLAN.md` section 15 say the 1660 ran on 610.88, and section 15 puts 560.94 on the 1060. Windows Update has changed the driver by itself before. Settle it with one `nvidia-smi` the next time Windows is booted.
+- **Driver record explained (read from Windows, 2026-11-11 06:08 UTC):** Windows holds three Nvidia driver packages at once: 560.94 (`32.0.15.6094`), 591.86 (`32.0.15.9186`) and 610.88 (`32.0.16.1088`). The installed-programs list says 610.88. The 1060 runs on 560.94, because drivers after the 580 branch don't include Pascal cards. So the earlier records were both right: each card was on a different driver. With the 1660 Ti and 1060 installed together, only the 1060 works: `nvidia-smi` and llama-bench see it alone, and the Ti shows `CM_PROB_REINSTALL` against the 591.86 package. Nvidia's lists (checked 2026-11-11): the newest Windows driver naming both the GTX 1060 and GTX 1660 Ti is Game Ready 581.80 (2025-11-04, 896.54 MB). The later 582.x security drivers (newest 582.78, 2026-09-30) list the 10 series and older only. 
+- **Driver 581.80 installed on Windows, 2026-11-11 06:16 to 06:25 UTC, Tim's choice:** downloaded from `us.download.nvidia.com` to `C:\gpudoc\downloads\nvidia-581.80` (896,544,928 bytes, SHA-256 `0A08462764F4D36EEECB8DA6ABFC01A6E32C94359B9E1E3287399F057C1D2839`). Authenticode signature valid, signed by NVIDIA Corporation. Silent clean install (`-s -clean -noreboot -noeula`), exit code 0. Both cards now report 581.80 with no device errors: the 1660 Ti at `01:00.0` and the 1060 at `02:00.0`. Windows wasn't rebooted afterwards. The full package also installed the NVIDIA App, its containers, telemetry client, ShadowPlay and audio drivers, which weren't there before; they can be removed if Tim wants a leaner test system. Old packages 560.94 and 591.86 are still in the driver store. Windows Update may replace 581.80 by itself, as it has changed drivers before.
+- **First two-card run on Windows, 2026-11-11 06:26 UTC, `gpudoc test --gpu all` with llama-bench only:** both PASS. Results in `captures/noodlecart/compute-20261111-062613-windows` (private).
+
+  | Card | Prompt tokens/s | Generation tokens/s | Peak temp | Avg power under load | Tokens per GPU watt-hour |
+  |---|---|---|---|---|---|
+  | GTX 1660 Ti | 426.7 | 42.9 | 56 C | 99.8 W | 1,546 |
+  | GTX 1060 | 182.5 | 27.8 | 60 C | 104.5 W | 959 |
+
+  - **Device order differs by system:** on Windows llama-bench lists `Vulkan0` as the 1060 and `Vulkan1` as the Ti, the reverse of Mint. Selection by name picked the right device both times, and memory rose only on the selected card (4,543 MiB on the Ti with 4 on the 1060; 4,539 MiB on the 1060 with 0 on the Ti).
+  - **Clean:** no `nvlddmkm` events, no leftovers, the Windows job-object guard was active. Power cap noted in 3 of 9 samples on each card.
+  - **Ti speed:** 42.9 generation tokens/s here matches the 41.3 from the standalone Mint check, so the 30.6 in the Mint GPUDoc run is the odd one out. That run came 60 s after a 5-minute gpu-burn; whether that is the cause is untested.
+  - **Not run on Windows:** a sustained compute stress test, because gpu-burn is Linux only.
+- **Booting Windows from Mint, tested 2026-11-11:** `sudo efibootmgr --bootnext 0000` then a reboot brought Windows up with nobody at the machine. A plain restart of Windows should return to Mint, since Mint is first in the boot order; not yet tested.
+- **GPUDoc on Windows:** new code deployed to `C:\gpudoc\app\gpudoc` on 2026-11-11, with the previous copy kept as `gpudoc.before-compute-adapters-20261111-060912`. No test has run there with it yet.
 - **Linux Mint 22.3:** on the 238 GB USB drive, as host `noodlecart-mint`, reached as `tim@192.168.2.51` by key. `tim` has a password and passwordless `sudo`, which needs tightening later.
 - **Boot:** since 2026-11-09, Mint boots through firmware entry `0002 "Ubuntu"` (`\EFI\ubuntu\shimx64.efi` on the USB stick), which is first in the boot order. Entry `0005 "UEFI OS"` (the old removable path) is still second. For Windows, press F11 and choose Windows Boot Manager, or from Mint run `sudo efibootmgr --bootnext 0000 && sudo reboot`.
 - **SSH identity:** each OS has its own host key at the same address. In Git Bash use `-o UserKnownHostsFile=/dev/null`. In PowerShell use `NUL`.
