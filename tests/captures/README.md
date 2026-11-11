@@ -21,6 +21,8 @@ Compute tools, all from Noodlecart on Linux Mint with the GTX 1660 Ti (bus 01) a
 - `gpu_burn_gtx1060_mint_300s`: stdout and telemetry from a real `gpudoc test --gpu-burn` run on the 1060, 2026-11-10. UUIDs removed.
 - `llama_bench_two_cards_mint`: `llama-bench --list-devices`, one llama-bench run per card with `-dev`, and `nvidia-smi` readings of both cards every 5 s during each run, 2026-11-10. The home folder name in the model path is replaced with `USER`.
 
+- `llama_bench_gtx1660ti_mint_desktop_locked` and `llama_bench_gtx1660ti_mint_desktop_unlocked`: stdout and telemetry from two real `gpudoc test` llama-bench runs on the Ti, 2026-11-11. In the first, Mint's desktop was locked and the card ran at 1,200 MHz with no reason reported. The second ran three minutes after the desktop was unlocked. The home folder name in the model path is replaced with `USER`.
+
 ## Not yet verified on real output
 
 - A failing gpu-burn run (result errors or a FAULTY verdict)

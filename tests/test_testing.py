@@ -501,6 +501,35 @@ class RealGpuBurnThroughGpudoc(unittest.TestCase):
         self.assertNotIn("memory_coverage_percent", r["summary"])
 
 
+class RealPinnedClock(unittest.TestCase):
+    """Two real llama-bench runs on the GTX 1660 Ti, Mint, 2026-11-11: one with the desktop locked, when the card
+    ran capped at 1200 MHz with no reason reported, and one three minutes after it was unlocked."""
+
+    def run_of(self, name):
+        folder = CAPTURES / name
+        tool = LlamaBench("x", "y").parse((folder / "tool_stdout.txt").read_text(encoding="utf-8"))
+        samples = [json.loads(line) for line in (folder / "telemetry.jsonl").read_text(encoding="utf-8").splitlines()]
+        return evaluate(ev(tool, samples))
+
+    def test_locked_desktop_run_is_flagged_but_still_passes(self):
+        r = self.run_of("llama_bench_gtx1660ti_mint_desktop_locked")
+        self.assertEqual(r["state"], "PASS")
+        self.assertIn("CLK-001", [f["rule"] for f in r["findings"]])
+        self.assertEqual(r["summary"]["pinned_gpu_clock_mhz"], 1200)
+        self.assertLess(r["summary"]["generation_tokens_per_second"], 31)
+
+    def test_unlocked_run_is_not_flagged(self):
+        r = self.run_of("llama_bench_gtx1660ti_mint_desktop_unlocked")
+        self.assertNotIn("CLK-001", [f["rule"] for f in r["findings"]])
+        self.assertGreater(r["summary"]["generation_tokens_per_second"], 41)
+
+    def test_gpu_burn_run_from_before_clocks_were_recorded_is_not_flagged(self):
+        folder = CAPTURES / "gpu_burn_gtx1060_mint_300s"
+        samples = [json.loads(line) for line in (folder / "telemetry.jsonl").read_text(encoding="utf-8").splitlines()]
+        r = evaluate(ev(GpuBurn("gpu_burn").parse((folder / "tool_stdout.txt").read_bytes().decode("utf-8")), samples))
+        self.assertNotIn("CLK-001", [f["rule"] for f in r["findings"]])
+
+
 class RealLlamaDeviceSelection(unittest.TestCase):
     """llama-bench b12177 on Mint with the GTX 1660 Ti (bus 01) and GTX 1060 (bus 02), 2026-11-10."""
 

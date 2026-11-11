@@ -492,6 +492,15 @@ def evaluate(e: Evidence) -> dict:
         summary["power_cap_samples"] = cap
         add("PWR-001", "NOTE", f"The card's power limit held clocks back in {cap} of {len(good)} samples. "
             "Speed and energy figures from this run reflect that limit.")
+    # Seen on Noodlecart: with the desktop locked, the card driving the monitor ran at exactly 1200 MHz under load,
+    # about 27% slower, while the driver reported no reason. A card can also sit at one clock when nothing limits it.
+    loaded = [s for s in good if s.get("clock_gpu") is not None and (s.get("gpu_util") or 0) > 50]
+    limited = any(s.get(k) == "Active" for s in loaded for k in ("hw_thermal", "sw_thermal", "sw_power_cap"))
+    if len(loaded) >= 3 and len({s["clock_gpu"] for s in loaded}) == 1 and not limited:
+        summary["pinned_gpu_clock_mhz"] = loaded[0]["clock_gpu"]
+        add("CLK-001", "NOTE", f"The GPU clock stayed at exactly {loaded[0]['clock_gpu']} MHz in all {len(loaded)} samples under load, "
+            "and the driver gave no reason. This can be the card's normal top speed, or a cap from outside the test, such as a "
+            "locked or sleeping desktop or a power-saving setting. Compare speed figures only with runs at the same clock.")
     if sw:
         target = f" The card's target temperature is {e.target_temp:.0f} C." if e.target_temp else ""
         add("THM-003", "NOTE", f"The driver lowered clocks to control temperature in {sw} of {len(good)} samples, peaking at "
@@ -504,7 +513,7 @@ def evaluate(e: Evidence) -> dict:
 
     states = {x["state"] for x in f}
     overall = next((s for s in ("FAIL", "INCONCLUSIVE", "ATTENTION") if s in states), "PASS")
-    return {"state": overall, "findings": f, "summary": summary, "rules_version": "draft-4"}
+    return {"state": overall, "findings": f, "summary": summary, "rules_version": "draft-5"}
 
 
 # ---------- orchestration ----------

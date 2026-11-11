@@ -73,6 +73,10 @@ A failed robocopy run reported 0, while a successful one reported 1, which is no
 
 - **Taichi Tailscale (2026-11-09, at Tim's request):** after the card swap and reboot, Taichi was up on the LAN (`192.168.2.218`) but offline in Tailscale, which is what the name `taichi` resolves to. With nobody signed in, Tailscale on Windows sat at "starting". Fixed over SSH as `Morgan`, by key: `tailscale set --unattended=true`, giving `ForceDaemon: true`. Taichi came straight back online, and RDP to `taichi` answers. The Tailscale service was already set to Automatic. Tailscale 1.102.2. Nothing else on Taichi was touched.
 
+## Planned features
+
+- **Easy overclocking (Tim, 2026-11-11):** Tim wants GPUDoc to offer simple overclocking. Not designed or built yet. Starting points: the power sweep already changes one setting per step, checks the result and restores the default, and overclocking can follow the same shape with clock offsets. Each step should be verified with the existing stress tools, stop on the first error, and always restore stock settings at the end. Reports must mark any result taken at non-stock settings. Unverified: which method sets clock offsets on these cards and drivers, on Linux and on Windows.
+
 ## Parked ideas
 
 - **Network boot (PXE) for Noodlecart (2026-11-08):** useful later, especially for clean test images and the refurbisher case of booting many machines into GPUDoc without touching their drives. It needs a boot server on the LAN and DHCP changes on the household network, so plan it in small, reversible steps. Not needed for OS switching, which `efibootmgr --bootnext` and `bcdedit` already handle.
