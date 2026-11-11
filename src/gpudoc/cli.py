@@ -53,13 +53,25 @@ def cmd_inspect(a) -> int:
 
 
 def cmd_test(a) -> int:
-    from .testing import LlamaBench, MemtestVulkan, describe_gpu, run_suite, select_gpu, temp_limit_for
-    adapters = [MemtestVulkan(a.tool_path)]
+    from .testing import GpuBurn, LlamaBench, MemtestVulkan, describe_gpu, run_suite, select_gpu, temp_limit_for
+    adapters = [MemtestVulkan(a.tool_path)] if a.tool_path else []
+    if a.gpu_burn:
+        if not sys.platform.startswith("linux"):
+            print("Nothing was run. gpu-burn only runs on Linux.")
+            return 3
+        if a.burn_seconds + 60 > a.max_seconds:
+            print(f"Nothing was run. --burn-seconds {a.burn_seconds} needs --max-seconds of at least {a.burn_seconds + 60}.")
+            return 3
+        adapters.append(GpuBurn(a.gpu_burn, a.burn_seconds))
     if a.llama_bench or a.model:
         if not (a.llama_bench and a.model):
             print("--llama-bench and --model must be used together.")
             return 3
-        adapters.append(LlamaBench(a.llama_bench, a.model))
+        # The tool is started from the run folder, so both paths must not depend on the current folder.
+        adapters.append(LlamaBench(str(Path(a.llama_bench).resolve()), str(Path(a.model).resolve())))
+    if not adapters:
+        print("Nothing was run. Choose at least one tool: --tool-path (memtest_vulkan), --gpu-burn, or --llama-bench with --model.")
+        return 3
     report, _ = inspect(LocalRunner())
     if a.gpu == "all":
         cards = report["gpus"]
@@ -72,9 +84,6 @@ def cmd_test(a) -> int:
             print(f"Nothing was run. {why}")
             return 3
         cards = [g]
-    if len(report["gpus"]) > 1 and any(not getattr(x, "reports_device", False) for x in adapters):
-        print("Nothing was run. llama-bench can't yet be confirmed to use only the selected card when several GPUs are installed.")
-        return 3
     print("These tests stress the GPU and raise its temperature, and they could expose or worsen an existing fault.")
     if len(cards) > 1:
         print(f"Each card is tested on its own, one after another: {len(cards)} cards.")
@@ -147,8 +156,10 @@ def main(argv=None) -> int:
     i.add_argument("--ssh", metavar="USER@HOST", help="Inspect a remote machine over SSH key login")
     i.add_argument("--from-capture", metavar="DIR", help="Re-parse saved real output")
     i.set_defaults(func=cmd_inspect)
-    t = sub.add_parser("test", help="Draft: run a memory stress test on one card with safety stops. Asks for confirmation.")
-    t.add_argument("--tool-path", required=True, help="Path to memtest_vulkan")
+    t = sub.add_parser("test", help="Draft: run memory, compute and AI stress tests on one card with safety stops. Asks for confirmation.")
+    t.add_argument("--tool-path", help="Path to memtest_vulkan, for the memory test")
+    t.add_argument("--gpu-burn", help="Path to gpu_burn, to add a compute stress test (Linux only)")
+    t.add_argument("--burn-seconds", type=int, default=300, help="How long gpu-burn runs. Default 300")
     t.add_argument("--gpu", help="Card to test, by nvidia-smi index or PCI bus ID such as 02:00.0, or 'all' for each card in turn. "
                                  "Required when more than one GPU is installed")
     t.add_argument("--llama-bench", help="Path to llama-bench, to add an AI workload")

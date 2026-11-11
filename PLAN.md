@@ -1,6 +1,6 @@
 # GPU Second Life: Project Plan
 
-**Status:** Phase 1 (`gpudoc inspect`) committed 2026-11-07, Phase 2 draft (`gpudoc test`) committed 2026-11-08. Nothing purchased. See `HANDOFF.md` for current state; parts of this plan, such as Phase 0 and section 15, still describe earlier hardware layouts.
+**Status:** Phase 1 (`gpudoc inspect`) committed 2026-11-07, Phase 2 draft (`gpudoc test`) committed 2026-11-08; gpu-burn and llama-bench ran through it on Linux on 2026-11-10. Nothing purchased. See `HANDOFF.md` for current state; parts of this plan, such as Phase 0 and section 15, still describe earlier hardware layouts.
 **Created:** 2026-11-05
 **Visibility:** Private planning document. Remove personal details before any of this goes into a public repo.
 **Working names:** `gpu-second-life` for the project and GPUDoc (`gpudoc`) for the tool. As of 2026-11-06, `gpudoc` was unused on PyPI, npm, and crates.io, with no GitHub account of that name. Trademarks have not been checked.

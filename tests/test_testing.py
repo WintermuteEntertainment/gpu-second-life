@@ -10,7 +10,7 @@ from pathlib import Path
 from gpudoc.inspect_core import CaptureRunner, inspect, parse_valid_fields
 import json
 
-from gpudoc.testing import (Evidence, LlamaBench, MemtestVulkan, combine, device_check, energy_wh, evaluate, memtest_label_for,
+from gpudoc.testing import (Evidence, GpuBurn, LlamaBench, MemtestVulkan, load_findings, strayed, track_load, combine, device_check, energy_wh, evaluate, memtest_label_for,
                             parse_bus_id, parse_xid, resolve_sample_fields, select_gpu, stop_and_confirm, temp_limit_for,
                             wait_until_idle)
 
@@ -413,6 +413,149 @@ class BusIdParsing(unittest.TestCase):
         self.assertEqual(parse_bus_id("02:00.0"), (0, 2, 0, 0))
         self.assertIsNone(parse_bus_id("02:00"))
         self.assertIsNone(parse_bus_id(None))
+
+
+
+class Replay:
+    """Answers one command with real saved output, the way CaptureRunner does for inspect."""
+
+    def __init__(self, stdout):
+        self.stdout_text = stdout
+
+    def run(self, args):
+        from gpudoc.inspect_core import Result
+        return Result(0, self.stdout_text, "")
+
+
+def smi_rows(name):
+    """Real nvidia-smi readings of both cards, taken every 5 s during a llama-bench run on one of them."""
+    out = []
+    for line in (CAPTURES / "llama_bench_two_cards_mint" / name).read_text(encoding="utf-8").splitlines():
+        c = [x.strip() for x in line.split(",")]
+        out.append((parse_bus_id(c[2]), float(c[6].split()[0])))
+    return out
+
+
+def usage_from(name):
+    rows = smi_rows(name)
+    usage = {"baseline": dict(rows[:2]), "peak": dict(rows[:2]), "failed": False}
+    for i in range(2, len(rows) - 1, 2):
+        track_load(usage, dict(rows[i:i + 2]))
+    return usage
+
+
+class RealGpuBurn(unittest.TestCase):
+    """gpu-burn commit 0d19c94 on the GTX 1660 Ti, Mint, 2026-11-10: a real 30-second run and its device list."""
+
+    FOLDER = CAPTURES / "gpu_burn_gtx1660ti_mint_30s"
+
+    def text(self):
+        return (self.FOLDER / "stdout.txt").read_bytes().decode("utf-8")
+
+    def test_real_clean_run_parses_as_complete(self):
+        r = GpuBurn("gpu_burn", 30).parse(self.text())
+        self.assertTrue(r["completed"])
+        self.assertTrue(r["started"])
+        self.assertEqual(r["failure_lines"], [])
+        self.assertEqual((r["gflops"], r["iterations"]), (4475, 128))
+
+    def test_progress_alone_is_not_a_pass(self):
+        # The same real output, cut where the burn ends and before gpu-burn prints its verdict.
+        partial = self.text().split("Killing processes")[0]
+        r = GpuBurn("gpu_burn", 30).parse(partial)
+        self.assertFalse(r["completed"])
+        self.assertGreater(r["gflops"], 0)
+
+    def test_empty_output_is_not_complete(self):
+        self.assertFalse(GpuBurn("gpu_burn").parse("")["completed"])
+
+    def test_real_device_list_parses(self):
+        listed = GpuBurn.parse_list((self.FOLDER / "list.txt").read_text(encoding="utf-8"))
+        self.assertEqual(listed, {0: "NVIDIA GeForce GTX 1660 Ti", 1: "NVIDIA GeForce GTX 1060 6GB"})
+
+    def test_command_names_the_device_and_duration(self):
+        self.assertEqual(GpuBurn("gpu_burn", 300, device=1).command()[1:], ["-i", "1", "300"])
+        self.assertEqual(GpuBurn("gpu_burn", 300).command()[1:], ["300"])
+
+
+class RealGpuBurnThroughGpudoc(unittest.TestCase):
+    """A real 300-second `gpudoc test --gpu-burn` run on the GTX 1060, Mint, 2026-11-10, with the 1660 Ti also installed."""
+
+    def setUp(self):
+        folder = CAPTURES / "gpu_burn_gtx1060_mint_300s"
+        self.tool = GpuBurn("gpu_burn").parse((folder / "tool_stdout.txt").read_bytes().decode("utf-8"))
+        self.samples = [json.loads(line) for line in (folder / "telemetry.jsonl").read_text(encoding="utf-8").splitlines()]
+
+    def test_run_passes_with_power_and_thermal_notes(self):
+        r = evaluate(ev(self.tool, self.samples, total=6144.0, target_temp=83.0))
+        self.assertEqual(r["state"], "PASS")
+        rules = [f["rule"] for f in r["findings"]]
+        self.assertIn("PWR-001", rules)
+        self.assertIn("THM-003", rules)
+        self.assertEqual(r["summary"]["peak_temp"], 82)
+        self.assertEqual(r["summary"]["gflops"], 2999)
+
+    def test_compute_run_gets_no_memory_coverage_note(self):
+        r = evaluate(ev(self.tool, self.samples))
+        self.assertNotIn("MEM-002", [f["rule"] for f in r["findings"]])
+        self.assertNotIn("memory_coverage_percent", r["summary"])
+
+
+class RealLlamaDeviceSelection(unittest.TestCase):
+    """llama-bench b12177 on Mint with the GTX 1660 Ti (bus 01) and GTX 1060 (bus 02), 2026-11-10."""
+
+    FOLDER = CAPTURES / "llama_bench_two_cards_mint"
+
+    def setUp(self):
+        report, _ = inspect(CaptureRunner(CAPTURES / "gtx1660ti_gtx1060_driver58017804_mint"))
+        self.gpus = report["gpus"]
+        self.ti, self.gtx1060 = self.gpus
+        self.listing = (self.FOLDER / "list_devices.txt").read_text(encoding="utf-8")
+
+    def test_real_device_list_parses(self):
+        self.assertEqual(LlamaBench.parse_devices(self.listing),
+                         [("Vulkan0", "NVIDIA GeForce GTX 1660 Ti"), ("Vulkan1", "NVIDIA GeForce GTX 1060 6GB")])
+
+    def test_selected_card_gets_its_device(self):
+        a = LlamaBench("llama-bench", "model.gguf")
+        self.assertIsNone(a.prepare(self.gpus, self.gtx1060, Replay(self.listing)))
+        self.assertEqual(a.device, "Vulkan1")
+        self.assertEqual(a.command()[3:5], ["-dev", "Vulkan1"])
+
+    def test_one_card_needs_no_device(self):
+        a = LlamaBench("llama-bench", "model.gguf")
+        self.assertIsNone(a.prepare([self.ti], self.ti, Replay("")))
+        self.assertNotIn("-dev", a.command())
+
+    def test_card_missing_from_the_list_is_refused(self):
+        # The real list from the Ti and 1060 layout, against the regular 1660 from the earlier layout.
+        report, _ = inspect(CaptureRunner(CAPTURES / "gtx1660_gtx1060_driver58017804_mint"))
+        why = LlamaBench("llama-bench", "model.gguf").prepare(report["gpus"], report["gpus"][0], Replay(self.listing))
+        self.assertIn("didn't run", why)
+
+    def test_reported_device_is_checked(self):
+        text = (self.FOLDER / "vulkan0.jsonl").read_text(encoding="utf-8")
+        right, wrong = LlamaBench("x", "y", device="Vulkan0"), LlamaBench("x", "y", device="Vulkan1")
+        tool = right.parse(text)
+        self.assertTrue(tool["completed"])
+        self.assertEqual(tool["devices"], "Vulkan0")
+        self.assertIsNone(right.verify(tool))
+        self.assertEqual(wrong.verify(tool)["rule"], "RUN-008")
+
+    def test_load_on_the_selected_card_only_is_accepted(self):
+        self.assertEqual(load_findings(usage_from("smi_vulkan0.csv"), parse_bus_id("01:00.0")), [])
+        self.assertEqual(load_findings(usage_from("smi_vulkan1.csv"), parse_bus_id("02:00.0")), [])
+
+    def test_load_on_the_other_card_is_caught(self):
+        # The real run on the Ti, judged as if the 1060 had been selected.
+        usage = usage_from("smi_vulkan0.csv")
+        self.assertEqual(strayed(usage, parse_bus_id("02:00.0")), [parse_bus_id("01:00.0")])
+        self.assertEqual([f["rule"] for f in load_findings(usage, parse_bus_id("02:00.0"))], ["RUN-014", "RUN-015"])
+
+    def test_unreadable_memory_cannot_confirm_the_card(self):
+        usage = usage_from("smi_vulkan0.csv")
+        track_load(usage, None)
+        self.assertEqual([f["rule"] for f in load_findings(usage, parse_bus_id("01:00.0"))], ["RUN-009"])
 
 
 if __name__ == "__main__":

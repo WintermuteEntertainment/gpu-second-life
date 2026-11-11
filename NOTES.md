@@ -69,7 +69,7 @@ A failed robocopy run reported 0, while a successful one reported 1, which is no
 - Experiments can be worth doing even when a more practical option exists.
 - Power use is a design principle: reduce, reuse, recycle.
 - **Test hygiene (2026-11-08):** results are only compared when their setup matches. Use a clean, known Linux image for test runs so leftovers from one run or from daily use can't skew the next. Tim: "we have to be careful about our hygiene or we'll ruin all our results."
-- **Remote power for Noodlecart (2026-11-08):** set up Wake-on-LAN. Tim likes a smart plug plus the firmware's "power on after power loss" setting as a remote hard reset for hangs. A smart plug is Tim's purchase decision; he's considering more smart switches anyway.
+- **Remote power for Noodlecart (2026-11-08):** set up Wake-on-LAN. Tim likes a smart plug plus the firmware's "power on after power loss" setting as a remote hard reset for hangs. A smart plug is Tim's purchase decision; he's considering more smart switches anyway. **2026-11-10:** Wake-on-LAN is enabled in the firmware (Tim) and on Mint's wired card; a real power-off and wake test is still due. Details in `HANDOFF.md`.
 
 - **Taichi Tailscale (2026-11-09, at Tim's request):** after the card swap and reboot, Taichi was up on the LAN (`192.168.2.218`) but offline in Tailscale, which is what the name `taichi` resolves to. With nobody signed in, Tailscale on Windows sat at "starting". Fixed over SSH as `Morgan`, by key: `tailscale set --unattended=true`, giving `ForceDaemon: true`. Taichi came straight back online, and RDP to `taichi` answers. The Tailscale service was already set to Automatic. Tailscale 1.102.2. Nothing else on Taichi was touched.
 

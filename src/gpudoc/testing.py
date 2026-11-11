@@ -46,6 +46,11 @@ class MemtestVulkan:
     def __init__(self, exe: str, device_label: int | None = None):
         self.exe, self.device_label = exe, device_label
 
+    def prepare(self, gpus: list[dict], target: dict, runner) -> str | None:
+        if len(gpus) > 1:
+            self.device_label = memtest_label_for(gpus, target)
+        return None
+
     def command(self) -> list[str]:
         # A device number as the first argument skips the selection menu. This comes from the project's
         # main-branch source, not a v0.5.0 test, so the device the tool reports is checked during the run.
@@ -76,17 +81,47 @@ def memtest_label_for(gpus: list[dict], target: dict) -> int | None:
 
 
 class LlamaBench:
-    """Adapter for llama-bench JSONL output, read from real b12177 Vulkan runs."""
+    """Adapter for llama-bench JSONL output, read from real b12177 Vulkan runs on Windows and Linux."""
 
     id = "llama_bench"
     version = "llama.cpp build reported in results"
     stdout_only = True
+    memory_test = False
+    # Real line from --list-devices: "  Vulkan0: NVIDIA GeForce GTX 1660 Ti (6390 MiB, 5411 MiB free)"
+    DEVICE = re.compile(r"^\s+([A-Za-z]+\d+): (.+) \(\d+ MiB, \d+ MiB free\)\s*$")
 
-    def __init__(self, exe: str, model: str, repetitions: int = 3):
-        self.exe, self.model, self.repetitions = exe, model, repetitions
+    def __init__(self, exe: str, model: str, repetitions: int = 3, device: str | None = None):
+        self.exe, self.model, self.repetitions, self.device = exe, model, repetitions, device
+
+    @classmethod
+    def parse_devices(cls, text: str) -> list[tuple[str, str]]:
+        """(device, card name) pairs from llama-bench --list-devices."""
+        return [(m.group(1), m.group(2).strip()) for m in map(cls.DEVICE.match, text.splitlines()) if m]
+
+    def prepare(self, gpus: list[dict], target: dict, runner) -> str | None:
+        """With several cards, picks the tool's device for the selected card by name. The list has no bus IDs,
+        so two cards with the same name can't be told apart here; the run also watches every card's memory."""
+        if len(gpus) == 1:
+            return None
+        r = runner.run([self.exe, "--list-devices"])
+        name = target["fields"]["name"]["value"]
+        match = [d for d, n in self.parse_devices(r.stdout + "\n" + r.stderr) if n == name]
+        if len(match) != 1:
+            return (f"llama-bench lists {len(match)} devices named '{name}', so the selected card can't be picked for certain, "
+                    "and it didn't run.")
+        self.device = match[0]
+        return None
+
+    def verify(self, tool: dict) -> dict | None:
+        if self.device and tool.get("devices") != self.device:
+            return {"rule": "RUN-008", "state": "INCONCLUSIVE", "text": (
+                f"llama-bench reported device '{tool.get('devices')}', not the requested '{self.device}'. "
+                "The result doesn't apply to the selected card.")}
+        return None
 
     def command(self) -> list[str]:
-        return [self.exe, "-m", self.model, "-ngl", "99", "-p", "512", "-n", "256", "-r", str(self.repetitions), "-o", "jsonl"]
+        return ([self.exe, "-m", self.model] + (["-dev", self.device] if self.device else []) +
+                ["-ngl", "99", "-p", "512", "-n", "256", "-r", str(self.repetitions), "-o", "jsonl"])
 
     def parse(self, text: str) -> dict:
         rows = []
@@ -103,6 +138,72 @@ class LlamaBench:
             "prompt_tokens_per_second": prompt[-1].get("avg_ts") if prompt else None,
             "generation_tokens_per_second": gen[-1].get("avg_ts") if gen else None,
             "backend": rows[-1].get("backends") if rows else None, "gpu_layers": rows[-1].get("n_gpu_layers") if rows else None,
+            "devices": rows[-1].get("devices") if rows else None, "memory_test": False,
+        }
+
+
+class GpuBurn:
+    """Adapter for gpu-burn (github.com/wilicc/gpu-burn, commit 0d19c94), a CUDA compute stress test that checks
+    its own results. Linux only. The output format was read from real runs on Noodlecart."""
+
+    id = "gpu_burn"
+    version = "commit 0d19c94"
+    memory_test = False
+    # CUDA numbers cards fastest first unless told otherwise. This makes it follow PCI bus order, as nvidia-smi does.
+    env = {"CUDA_DEVICE_ORDER": "PCI_BUS_ID"}
+    LISTED = re.compile(r"^ID (\d+): (.+), \d+MB\s*$")
+    PROGRESS = re.compile(r"([\d.]+)%\s+proc'd: (-?\d+) \((\d+) Gflop/s\)\s+errors: (-?\d+)")
+    RESULT = re.compile(r"^\s*GPU (\d+): (\w+)\s*$")
+
+    def __init__(self, exe: str, seconds: int = 300, device: int | None = None):
+        self.exe, self.seconds, self.device = str(Path(exe).resolve()), seconds, device
+        # gpu-burn loads compare.fatbin from the current folder, so it runs from its own.
+        self.cwd = Path(self.exe).parent
+
+    @classmethod
+    def parse_list(cls, text: str) -> dict[int, str]:
+        """Device number to card name, from gpu_burn -l."""
+        return {int(m.group(1)): m.group(2).strip() for m in map(cls.LISTED.match, text.splitlines()) if m}
+
+    def list_devices(self) -> str:
+        p = subprocess.run([self.exe, "-l"], cwd=self.cwd, env={**os.environ, **self.env}, capture_output=True, text=True, timeout=60)
+        return p.stdout
+
+    def prepare(self, gpus: list[dict], target: dict, runner) -> str | None:
+        if not sys.platform.startswith("linux"):
+            return "gpu-burn only runs on Linux, so it didn't run."
+        if len(gpus) == 1:
+            return None
+        keyed = [(parse_bus_id(g["details"].get("pci_bus_id")), g) for g in gpus]
+        if any(k is None for k, _ in keyed):
+            return "A card's PCI bus ID is unknown, so gpu-burn's device number can't be worked out, and it didn't run."
+        number = next(i for i, (_, g) in enumerate(sorted(keyed, key=lambda kg: kg[0])) if g is target)
+        name = target["fields"]["name"]["value"]
+        listed = self.parse_list(self.list_devices())
+        if listed.get(number) != name:
+            return (f"gpu-burn lists device {number} as '{listed.get(number)}', not '{name}', so the selected card can't be "
+                    "picked for certain, and it didn't run.")
+        self.device = number
+        return None
+
+    def command(self) -> list[str]:
+        return [self.exe] + (["-i", str(self.device)] if self.device is not None else []) + [str(self.seconds)]
+
+    def parse(self, text: str) -> dict:
+        # Progress lines overwrite each other with carriage returns.
+        lines = text.replace("\r", "\n").splitlines()
+        progress = [m for m in map(self.PROGRESS.search, lines) if m]
+        results = [m.group(2) for m in map(self.RESULT.match, lines) if m]
+        # No real failing gpu-burn log exists yet, so these two matches are unverified. A match can only make a run fail.
+        bad = [m.group(0) for m in progress if int(m.group(4)) != 0 or int(m.group(2)) < 0]
+        bad += [line.strip() for line in lines if self.RESULT.match(line) and not line.strip().endswith(": OK")]
+        return {
+            "completed": any(line.startswith("Tested ") for line in lines) and bool(results) and all(r == "OK" for r in results),
+            "failure_lines": list(dict.fromkeys(bad))[:20],
+            "iterations": int(progress[-1].group(2)) if progress else 0,
+            "started": any(line.startswith("Burning for") for line in lines),
+            "gflops": int(progress[-1].group(3)) if progress else None,
+            "memory_test": False,
         }
 
 
@@ -167,6 +268,64 @@ def device_check(tested: dict | None, g: dict, gpu_count: int) -> dict | None:
             f"The tool tested Bus=0x{tested['bus']:02X}:{tested['device']:02X} DevId=0x{tested['dev_id']:04X}, "
             f"not the selected {describe_gpu(g)}. The result doesn't apply to the selected card.")}
     return None
+
+
+LOAD_MIB = 512
+
+
+def memory_by_bus(runner) -> dict | None:
+    """Memory in use on every card, keyed by PCI bus. None if it couldn't be read."""
+    r = runner.run(["nvidia-smi", "--query-gpu=pci.bus_id,memory.used", "--format=csv,noheader,nounits"])
+    if r.returncode != 0:
+        return None
+    out = {}
+    for line in r.stdout.strip().splitlines():
+        bus, _, used = line.rpartition(",")
+        key = parse_bus_id(bus)
+        try:
+            out[key] = float(used)
+        except ValueError:
+            return None
+        if key is None:
+            return None
+    return out or None
+
+
+def track_load(usage: dict, reading: dict | None) -> None:
+    """Keeps each card's highest memory use seen during the run."""
+    if reading is None:
+        usage["failed"] = True
+        return
+    for bus, used in reading.items():
+        usage["peak"][bus] = max(used, usage["peak"].get(bus, used))
+
+
+def load_rise(usage: dict) -> dict:
+    """How far each card's memory use rose above its level before the tool started, in MiB."""
+    base = usage.get("baseline") or {}
+    return {bus: peak - base[bus] for bus, peak in usage["peak"].items() if bus in base}
+
+
+def strayed(usage: dict, bus: tuple | None) -> list[tuple]:
+    """Other cards whose memory use rose enough to show they took load."""
+    return [b for b, rise in load_rise(usage).items() if b != bus and rise >= LOAD_MIB]
+
+
+def load_findings(usage: dict, bus: tuple | None) -> list[dict]:
+    """For tools that don't name their card by bus: confirms from memory use that the selected card,
+    and only that card, carried the load."""
+    rise = load_rise(usage)
+    if usage.get("failed") or not usage.get("baseline") or bus not in rise:
+        return [{"rule": "RUN-009", "state": "INCONCLUSIVE", "text": "Memory use on every card couldn't be read throughout the run, "
+                 "so the card that carried the load can't be confirmed."}]
+    out = []
+    for b in strayed(usage, bus):
+        out.append({"rule": "RUN-014", "state": "INCONCLUSIVE", "text": f"Memory use on another card (bus {b[1]:02x}:{b[2]:02x}) rose by "
+                    f"{rise[b]:.0f} MiB during the run, so the load didn't stay on the selected card."})
+    if rise[bus] < LOAD_MIB:
+        out.append({"rule": "RUN-015", "state": "INCONCLUSIVE", "text": f"Memory use on the selected card rose by only {rise[bus]:.0f} MiB, "
+                    "so there's no sign it carried the load."})
+    return out
 
 
 def combine(results: list[dict]) -> str:
@@ -284,6 +443,10 @@ def evaluate(e: Evidence) -> dict:
                "iterations": e.tool.get("iterations"), "stop_reason": e.stop_reason, "gpu_energy_wh": energy_wh(good)}
     tps = e.tool.get("generation_tokens_per_second")
     watts = [s["power_draw"] for s in good if s.get("power_draw") is not None and (s.get("gpu_util") or 0) > 50]
+    if e.tool.get("gflops") is not None:
+        summary["gflops"] = e.tool["gflops"]
+        if watts:
+            summary["gflops_per_gpu_watt"] = round(e.tool["gflops"] / (sum(watts) / len(watts)), 1)
     if tps is not None:
         summary["generation_tokens_per_second"] = tps
         summary["prompt_tokens_per_second"] = e.tool.get("prompt_tokens_per_second")
@@ -291,7 +454,8 @@ def evaluate(e: Evidence) -> dict:
             summary["tokens_per_gpu_watt_hour"] = round(tps * 3600 / (sum(watts) / len(watts)))
 
     if e.tool.get("failure_lines"):
-        add("MEM-001", "FAIL", "The tool's output contains failure text: " + e.tool["failure_lines"][0])
+        rule = "MEM-001" if e.tool.get("memory_test", True) else "CMP-001"
+        add(rule, "FAIL", "The tool's output contains failure text: " + e.tool["failure_lines"][0])
     if 48 in e.xid_codes:
         add("DRV-004", "FAIL", "Xid 48, an uncorrectable (double-bit) ECC memory error, was logged for this card during the run.")
     if e.driver_errors:
@@ -324,7 +488,7 @@ def evaluate(e: Evidence) -> dict:
         target = f" The card's target temperature is {e.target_temp:.0f} C." if e.target_temp else ""
         add("THM-003", "NOTE", f"The driver lowered clocks to control temperature in {sw} of {len(good)} samples, peaking at "
             f"{summary['peak_temp']} C.{target} This is the driver's normal temperature control, not a fault by itself.")
-    if peak_mem and e.memory_total:
+    if peak_mem and e.memory_total and e.tool.get("memory_test", True):
         pct = 100 * peak_mem / e.memory_total
         summary["memory_coverage_percent"] = round(pct, 1)
         add("MEM-002", "NOTE", f"Up to {peak_mem:.0f} of {e.memory_total:.0f} MiB ({pct:.0f}%) was in use, so this doesn't prove the whole memory was tested.")
@@ -332,7 +496,7 @@ def evaluate(e: Evidence) -> dict:
 
     states = {x["state"] for x in f}
     overall = next((s for s in ("FAIL", "INCONCLUSIVE", "ATTENTION") if s in states), "PASS")
-    return {"state": overall, "findings": f, "summary": summary, "rules_version": "draft-3"}
+    return {"state": overall, "findings": f, "summary": summary, "rules_version": "draft-4"}
 
 
 # ---------- orchestration ----------
@@ -431,11 +595,11 @@ def kill_with_parent_windows(proc) -> bool:
     return bool(ok and k32.AssignProcessToJobObject(job, int(proc._handle)))
 
 
-def start_tool(cmd: list[str], cwd: Path, stdout, stderr) -> tuple[subprocess.Popen, str]:
+def start_tool(cmd: list[str], cwd: Path, stdout, stderr, env: dict | None = None) -> tuple[subprocess.Popen, str]:
     """Starts a stress tool so it can't outlive GPUDoc. Returns the process and how that's guaranteed."""
     linux = sys.platform.startswith("linux")
     proc = subprocess.Popen(cmd, cwd=cwd, stdout=stdout, stderr=stderr, stdin=subprocess.DEVNULL, start_new_session=os.name != "nt",
-                            preexec_fn=_die_with_parent if linux else None)
+                            env={**os.environ, **env} if env else None, preexec_fn=_die_with_parent if linux else None)
     if linux:
         return proc, "linux_pdeathsig"
     if os.name == "nt":
@@ -482,12 +646,13 @@ def run_adapter(adapter, out_dir: Path, gpu_select: str | None = None, max_secon
     if g is None:
         return {"state": "INCONCLUSIVE", "summary": {}, "tool_id": adapter.id, "findings": [{"rule": "RUN-010", "state": "INCONCLUSIVE", "text": why}]}
     count = len(before["gpus"])
-    if count > 1 and not getattr(adapter, "reports_device", False):
-        # Without the tool naming its device, a result can't be tied to one card.
-        return {"state": "INCONCLUSIVE", "summary": {}, "tool_id": adapter.id, "findings": [{"rule": "RUN-006", "state": "INCONCLUSIVE",
-                "text": f"More than one GPU is present, and {adapter.id} can't yet be confirmed to use only the selected card, so it didn't run."}]}
-    if count > 1:
-        adapter.device_label = memtest_label_for(before["gpus"], g)
+    # Each tool works out its own device number for the selected card, or says why it can't.
+    if hasattr(adapter, "prepare"):
+        why = adapter.prepare(before["gpus"], g, runner)
+    else:
+        why = f"More than one GPU is present, and {adapter.id} can't be pointed at the selected card, so it didn't run." if count > 1 else None
+    if why:
+        return {"state": "INCONCLUSIVE", "summary": {}, "tool_id": adapter.id, "findings": [{"rule": "RUN-006", "state": "INCONCLUSIVE", "text": why}]}
     # nvidia-smi accepts a PCI bus ID here, which avoids relying on index order (checked on Mint, driver 580.178.04).
     gpu = g["details"].get("pci_bus_id") or g["index"]
     limit = temp_limit_for(g["details"], temp_limit)
@@ -501,13 +666,18 @@ def run_adapter(adapter, out_dir: Path, gpu_select: str | None = None, max_secon
     stdout_path, stderr_path, tele_path = out_dir / "tool_stdout.txt", out_dir / "tool_stderr.txt", out_dir / "telemetry.jsonl"
     start = dt.datetime.now()
     samples, interrupted_by = [], None
+    # A tool that doesn't name its card by bus is checked by watching memory use on every card.
+    usage = None
+    if count > 1 and not getattr(adapter, "reports_device", False):
+        base = memory_by_bus(runner)
+        usage = {"baseline": base, "peak": dict(base or {}), "failed": base is None}
     # Ctrl+C, a terminal closing, or a kill request stops the tool and still writes an INCONCLUSIVE result.
     old_handlers = _set_handlers(_raise_interrupted)
     try:
         with open(stdout_path, "wb") as so, open(stderr_path, "wb") as se, open(tele_path, "w", encoding="utf-8") as tele:
-            proc, guard = start_tool(adapter.command(), out_dir, so, se)
+            proc, guard = start_tool(adapter.command(), getattr(adapter, "cwd", None) or out_dir, so, se, getattr(adapter, "env", None))
             try:
-                reason = _watch(proc, adapter, runner, fields, gpu, g, count, limit, max_seconds, interval, stdout_path, samples, tele)
+                reason = _watch(proc, adapter, runner, fields, gpu, g, count, limit, max_seconds, interval, stdout_path, samples, tele, usage)
             except Interrupted as e:
                 reason, interrupted_by = "interrupted", str(e)
             _set_handlers(signal.SIG_IGN)  # further signals wait until the tool is stopped and the result is written
@@ -533,6 +703,12 @@ def run_adapter(adapter, out_dir: Path, gpu_select: str | None = None, max_secon
             check = device_check(tool.get("tested_device"), g, count)
             if check:
                 extra.append(check)
+        if hasattr(adapter, "verify"):
+            check = adapter.verify(tool)
+            if check:
+                extra.append(check)
+        if usage is not None:
+            extra.extend(load_findings(usage, parse_bus_id(bus_id)))
         if g_after is None:
             extra.append({"rule": "RUN-011", "state": "INCONCLUSIVE", "text": f"The selected card wasn't found after the run: {describe_gpu(g)}."})
         log = driver_errors(start, runner, bus_id)
@@ -542,6 +718,7 @@ def run_adapter(adapter, out_dir: Path, gpu_select: str | None = None, max_secon
                                    xid_codes=log.get("codes", []) if log else []))
         result.update(tool_id=adapter.id, tool_version=adapter.version, tool_exit=stop, temp_limit=limit, gpu_name=g["fields"]["name"]["value"],
                       gpu_index=g["index"], gpu_bus_id=bus_id, tool_command=adapter.command(), driver_log=log,
+                      memory_rise_mib={f"{b[1]:02x}:{b[2]:02x}.{b[3]}": r for b, r in load_rise(usage).items()} if usage else None,
                       started_at=start.isoformat(timespec="seconds"), before=before, after=after)
         (out_dir / "test.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
         return result
@@ -550,8 +727,9 @@ def run_adapter(adapter, out_dir: Path, gpu_select: str | None = None, max_secon
             signal.signal(sig, handler)
 
 
-def _watch(proc, adapter, runner, fields, gpu, g, count, limit, max_seconds, interval, stdout_path, samples, tele) -> str:
+def _watch(proc, adapter, runner, fields, gpu, g, count, limit, max_seconds, interval, stdout_path, samples, tele, usage=None) -> str:
     """Samples the card until something ends the run, and returns why it ended."""
+    bus = parse_bus_id(g["details"].get("pci_bus_id"))
     t0 = time.monotonic()
     while time.monotonic() - t0 < max_seconds:
         time.sleep(interval)
@@ -564,6 +742,10 @@ def _watch(proc, adapter, runner, fields, gpu, g, count, limit, max_seconds, int
             return "sensor_failure"
         if (s.get("temperature_gpu") or 0) >= limit:
             return "temperature_limit"
+        if usage is not None:
+            track_load(usage, memory_by_bus(runner))
+            if strayed(usage, bus):
+                return "wrong_device"
         if proc.poll() is not None:
             return "tool_exited"
         parsed = adapter.parse(stdout_path.read_text(encoding="utf-8", errors="replace"))

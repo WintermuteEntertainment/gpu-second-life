@@ -39,7 +39,28 @@ Working on the GTX 1660 over SSH, locally on Windows, and in WSL2, with JSON, Ma
 
 ## Phase 2: `gpudoc test`
 
-Draft in `src/gpudoc/testing.py`. It runs `memtest_vulkan`, then `llama-bench`, with monitoring, a temperature stop, process-tree stopping, driver comparison, VRAM coverage, energy, and rules. 65 tests pass on PT (Python 3.11.9) and on Mint (Python 3.12.3), 2026-11-08. Rules version `draft-3`.
+Draft in `src/gpudoc/testing.py`. It runs `memtest_vulkan` (memory), `gpu-burn` (compute, Linux only) and `llama-bench` (AI workload), each optional, with monitoring, a temperature stop, process-tree stopping, driver comparison, VRAM coverage, energy, and rules. 80 tests pass on PT (Python 3.11.9) and on Mint (Python 3.12.3), 2026-11-11. Rules version `draft-4`.
+
+**Compute adapters, added 2026-11-10:**
+- **Flags:** `--tool-path` (memtest_vulkan) is now optional. `--gpu-burn PATH` with `--burn-seconds` (default 300) adds gpu-burn. `--llama-bench` with `--model` adds llama-bench. At least one tool is required.
+- **Card selection:** each adapter works out its own device for the selected card, or refuses (RUN-006). gpu-burn runs with `CUDA_DEVICE_ORDER=PCI_BUS_ID` and `-i N`, where N is the card's rank by bus, and its `-l` list must show the selected card's name at N. llama-bench matches the card's name in `--list-devices` and passes `-dev`; two cards with the same name are refused, because that list has no bus IDs.
+- **Proof of the card used:** neither tool names its card by bus, so GPUDoc reads memory use on every card every 5 s. Another card rising 512 MiB or more stops the run (`wrong_device`, RUN-014). The selected card rising less than that gives RUN-015. Unreadable memory gives RUN-009. llama-bench's reported `devices` value must also match (RUN-008). Each `test.json` records `memory_rise_mib` per card.
+- **Rules:** gpu-burn result errors or a FAULTY verdict give CMP-001 FAIL; that match is unverified, because no real failing gpu-burn output exists. The VRAM coverage note (MEM-002) now applies to memory tests only.
+- **Windows:** gpu-burn has no Windows build, so the compute stress test is Linux only for now. PLAN section 6 names a sustained llama.cpp run as the Windows stand-in; not built.
+- **Not tested:** killing GPUDoc outright during gpu-burn. gpu-burn starts child processes, and the Linux guard only covers the direct child, so leftovers are possible. gpu-burn does end by itself after its set time.
+
+**First compute run through GPUDoc, Mint, 2026-11-10 23:54 to 2026-11-11 00:08 UTC, both cards in turn (`--gpu all`), Tim's go-ahead:** all four steps PASS. Results in `captures/noodlecart/compute-20261110-235403-mint` (private).
+
+| Card | Tool | Result | Speed | Peak temp | Avg power under load | Notes |
+|---|---|---|---|---|---|---|
+| GTX 1660 Ti | gpu-burn 300 s | PASS | 4,462 Gflop/s, 44.1 per watt | 75 C | about 101 W | No slowdown flags |
+| GTX 1660 Ti | llama-bench | PASS | 306.1 prompt, 30.6 generation tokens/s | 59 C | about 65 W | See open question below |
+| GTX 1060 | gpu-burn 300 s | PASS | 2,999 Gflop/s, 29.0 per watt | 82 C | about 103 W | Power cap in 24 of 67 samples, software thermal slowdown in 29 |
+| GTX 1060 | llama-bench | PASS | 179.4 prompt, 27.2 generation tokens/s | 73 C | about 108 W | Power cap in 3 of 9 samples |
+
+- **Card proof held:** memory rose 4,695 MiB (gpu-burn) and 4,544 MiB (llama) on the Ti with 2 and 0 MiB on the 1060, then 5,454 and 4,540 MiB on the 1060 with 3 and 10 MiB on the Ti.
+- **Clean:** no Xid lines, no leftovers, Linux guard active on all four steps.
+- **Open question, 1660 Ti speed:** in this run the Ti drew less power and ran slower than in the standalone checks about 30 minutes earlier, with no slowdown flag active in any sample. llama-bench: 30.6 generation tokens/s at about 65 W on average (steady readings near 70 W), against 41.3 with a 118 W peak. gpu-burn: 4,462 Gflop/s at about 101 W, against about 4,860 at about 120 W on 2026-11-09. Its power limit reads 120 W (the default). The 1060's figures barely moved (27.2 against 27.4). Cause unknown. Known differences: llama-bench ran 60 s after a 5-minute gpu-burn, and a desktop session was logged in at the monitor (two Xorg processes on the Ti). Until this is explained, don't compare the Ti's speed figures between runs. GPUDoc doesn't yet record clock speeds or the full slowdown-reason value, which would help here.
 
 **Phase 2 exit check met on 2026-11-08:** PLAN section 13 requires real thermal, crash and interruption tests to pass on Noodlecart, and they did. Sensor failure wasn't tested, because doing it without faking would mean breaking `nvidia-smi` mid-run. gpu-burn and DCGM evaluation are still in Phase 2's scope.
 
@@ -111,9 +132,12 @@ Draft in `src/gpudoc/testing.py`. It runs `memtest_vulkan`, then `llama-bench`, 
 
 **Not done:**
 - A sensor-failure test that doesn't fake anything.
-- GPU selection for `llama-bench`, and `llama-bench` on Linux at all.
+- Done 2026-11-10: GPU selection for `llama-bench`, `llama-bench` on Linux, and the gpu-burn adapter.
 - HTML test reports (Phase 3).
-- gpu-burn and DCGM evaluation.
+- DCGM evaluation.
+- A compute stress test on Windows.
+- Recording clock speeds and the full slowdown-reason value in telemetry.
+- A kill test of GPUDoc during gpu-burn.
 
 **Open questions:**
 - Why does `memtest_vulkan` cover less of the 1660's VRAM than the 1060's? On Windows it was 79% vs about 96%; on Mint, same driver, 87.2% vs 92.5%. The 1660 drives the login screen (204 MiB in use before its run), which explains only part of the gap.
@@ -142,6 +166,26 @@ Draft in `src/gpudoc/testing.py`. It runs `memtest_vulkan`, then `llama-bench`, 
   - **Memory:** 231.2 GB/s written and 203.5 GB/s checked in the last 30 s window, against 156.9 and 147.1 on the 1660. Coverage 5,360 of 6,144 MiB, 87.2%.
   - **Clean:** no Xid lines, no leftovers, Linux guard active.
   - **Results:** `captures/noodlecart/1660ti-20261109-mint` (private).
+- **Compute tools on Mint, 2026-11-09 22:12 to 23:44 UTC, with Tim's OK to download and install:**
+  - **CUDA toolkit:** Ubuntu's `nvidia-cuda-toolkit` 12.0.140, installed with `--no-install-recommends` (1,465 MB download, 5,029 MB on disk, 48 packages, none removed or upgraded). The driver is unchanged at 580.178.04. This changes the test image, so it counts as part of the setup for hygiene.
+  - **gpu-burn:** built from source at commit `0d19c94` (2026-10-02) in `~/gpudoc/tools/gpu-burn-0d19c94`, with `make COMPUTE=61 CUDAPATH=/usr`. Source archive SHA-256 `58a6f467...2bdad7`. Run it from its own folder, because it loads `compare.fatbin` from the current directory.
+  - **gpu-burn device numbers:** with `CUDA_DEVICE_ORDER=PCI_BUS_ID`, `./gpu_burn -l` lists ID 0 as the 1660 Ti and ID 1 as the 1060, matching `nvidia-smi`. Without that variable the order is unverified.
+  - **Quick checks, outside GPUDoc, 60 s each, output not saved:** 1660 Ti: 0 errors, about 4,860 Gflop/s, 35 C to 70 C, about 120 W, power-capped throughout. 1060: reported OK, about 3,290 Gflop/s early in the run, 33 C to 70 C, about 120 W, power-capped from about 30 s. gpu-burn's own "temps" figure was wrong during the 1660 Ti run (it showed 33 C while `nvidia-smi` showed 67 C), so don't use it; GPUDoc's own telemetry is the source.
+  - **llama.cpp:** build b12177, Ubuntu Vulkan x64, the same build as the Windows runs, in `~/gpudoc/tools/llama.cpp-b12177-vulkan/llama-b12177`. Archive SHA-256 `9b1e56f8...e218c2`, not yet compared with the published digest. Not yet run.
+  - **Model, installed 2026-11-10 23:22 UTC:** `qwen2.5-7b-instruct-q4_k_m` (two parts, 3,993,201,344 and 689,872,288 bytes) in `~/gpudoc/models/qwen2.5-7b-instruct-q4_k_m`. Copied from Noodlecart's Windows drive (`sda3`, mounted read-only at `/mnt/win`, then unmounted), from `gpudoc\models\qwen2.5-7b-q4_k_m`, so both systems use the same files. SHA-256 of both parts matches Hugging Face's published values: part 1 `dfce12e3862a5283ccfb88221b48480e58745165de856439950d0f22590580db`, part 2 `539cf93f78e887edea1c04e2d7d8cdaca9d01dae9c9025bcb8accbe29df3d72a`. The earlier Hugging Face download ran at roughly 100 KB/s and was dropped; its 408 MB `.part` file is still in that folder and can be deleted with Tim's OK.
+  - **Install script:** `~/gpudoc/scripts/install_compute_tools.sh` on Mint, not yet in the repo.
+  - **llama-bench device selection, verified 2026-11-10 23:24 UTC:** `--list-devices` shows `Vulkan0` as the 1660 Ti and `Vulkan1` as the 1060. `-dev VulkanN` puts the load on that card only, confirmed by watching both cards, and each JSONL result row names it in its `devices` field. This is what GPUDoc needs to lift the several-cards refusal (RUN-006): pass `-dev`, then check `devices` and the other card's memory and power.
+  - **llama-bench check, outside GPUDoc, same arguments as the adapter (`-ngl 99 -p 512 -n 256 -r 3`):**
+
+    | Card | Prompt tokens/s | Generation tokens/s | Peak temp | Peak power | Peak memory | Other card |
+    |---|---|---|---|---|---|---|
+    | GTX 1660 Ti | 427.4 | 41.3 | 51 C | 118.6 W | 4,913 MiB | 1060 stayed at 7 MiB, 6.1 W |
+    | GTX 1060 | 182.2 | 27.4 | 55 C | 123.2 W | 4,549 MiB | 1660 Ti stayed at 379 MiB, 16.7 W |
+
+    The run is short, so the peak temperatures aren't a thermal result. Raw output: `captures/noodlecart/llama-check-20261110-232431-mint` (private).
+  - **Done 2026-11-10:** the gpu-burn adapter, `-dev` selection in the `llama-bench` adapter, and the first compute run through GPUDoc. See Phase 2.
+  - **Deployed code on Mint:** `~/gpudoc/src` and `~/gpudoc/tests`, with the previous copies kept as `src.before-compute-adapters-*` and `tests.before-compute-adapters-*`.
+- **Wake-on-LAN (2026-11-10):** Tim enabled LAN power-on in the firmware. On Mint, `Wired connection 1` (`eno2`, MAC `a8:a1:59:53:3b:79`) now has `wake-on-lan magic`, and `ethtool` reports `Wake-on: g`; it was `d` before. Not yet tested with a real power-off and wake. Windows has its own setting, not checked. Noodlecart is on wired Ethernet; `wlo1` is down.
 - **GRUB still stops at `grub>` on boot (Tim, 2026-11-09),** despite the `EFI/ubuntu/grub.cfg` fix and one clean boot. The files are intact: both stubs identical, `/boot/grub/grub.cfg` present, grubenv empty, booted from entry `0005`. `strings` on `grubx64.efi` found no readable built-in config. Next: at the prompt, record `echo $prefix`, `echo $cmdpath`, `echo $root` and `search.fs_uuid 7100f9dc-803d-43e5-9e63-9d8387cff15d`. **Fallback applied 2026-11-09 14:00 UTC, with Tim's OK, without the prompt output:** both stubs (`EFI/BOOT/grub.cfg` and `EFI/ubuntu/grub.cfg`) now keep the UUID search, and if `/boot/grub/grub.cfg` isn't found on the result, they search by the label `mint-gpudoc`, which is what Tim's manual command does. `grub-script-check` passed. The originals are saved beside them as `grub.cfg.before-fallback-20261109`. Not yet tested by a boot. A future `grub-install` would rewrite `EFI/BOOT/grub.cfg`. **Result: `grub>` appeared again on the next boot,** so the fallback didn't fix it. Tim typed the four commands but the output wasn't kept. **Self-logging added 2026-11-09 14:30 UTC, with Tim's OK:** both stubs now record `$prefix`, `$cmdpath`, `$root` at start, `$root` after the UUID search, and `$root` at the end. They save these with `save_env` to `grubenv` in the folder GRUB was loaded from: 1024-byte files created empty in `EFI/BOOT` and `EFI/ubuntu`. Each copy also records which copy ran (`gpudoc_stub`). The previous versions are saved as `grub.cfg.before-diaglog-20261109`. After the next boot, read them with `sudo grub-editenv /boot/efi/EFI/BOOT/grubenv list`, and the same for `EFI/ubuntu`. Both still empty means GRUB never reads either stub. **Read after the 2026-11-09 14:33 UTC boot: both logs empty.** So GRUB most likely never reads either stub. The other possibility is that `save_env` failed to write, which would be unusual on FAT. **Standard GRUB install done 2026-11-09 14:40 UTC, with Tim's OK:** `grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=ubuntu --uefi-secure-boot`, then `update-grub`. Both exited 0.
 - **Backups:** `~/gpudoc/boot-backup-before-grub-install-20261109/` holds firmware entries before and after, the old `/boot/grub/grub.cfg`, and a tar of the whole ESP `EFI` folder. The old `EFI/ubuntu` folder was also copied to `EFI/ubuntu.before-grub-install-20261109`.
 - **New firmware entry:** `Boot0002 "Ubuntu"`, pointing to `\EFI\ubuntu\shimx64.efi` on the USB stick's ESP, first in BootOrder (`0002,0005,0000,0001,0004`), so Mint stays the default.

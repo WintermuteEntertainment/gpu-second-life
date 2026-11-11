@@ -1,0 +1,21 @@
+{
+  "driver_version": "580.178.04",
+  "gpus": [
+    {
+      "name": "NVIDIA GeForce GTX 1660 Ti",
+      "uuid": "GPU-SCRUBBED",
+      "vbios_version": "90.16.29.00.2D",
+      "memory_total": 6144.0,
+      "pcie_gen_max": 3,
+      "pcie_width_max": 16
+    },
+    {
+      "name": "NVIDIA GeForce GTX 1060 6GB",
+      "uuid": "GPU-SCRUBBED",
+      "vbios_version": "86.06.45.00.C3",
+      "memory_total": 6144.0,
+      "pcie_gen_max": 3,
+      "pcie_width_max": 16
+    }
+  ]
+}
