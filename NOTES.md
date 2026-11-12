@@ -78,6 +78,8 @@ A failed robocopy run reported 0, while a successful one reported 1, which is no
 
 - **Easy overclocking (Tim, 2026-11-11):** Tim wants GPUDoc to offer simple overclocking. Not designed or built yet. Starting points: the power sweep already changes one setting per step, checks the result and restores the default, and overclocking can follow the same shape with clock offsets. Each step should be verified with the existing stress tools, stop on the first error, and always restore stock settings at the end. Reports must mark any result taken at non-stock settings. Unverified: which method sets clock offsets on these cards and drivers, on Linux and on Windows.
 
+- **Easier interface (Tim, 2026-11-12):** a local web page served by GPUDoc itself, the same approach as Wattever: a Python standard-library server on `127.0.0.1`, opened in a browser. Planned shape: pick cards and tools, see the confirmation and stop limits, start a run, watch live telemetry, and browse past results as HTML reports. It must keep every safety the command line has (confirmation, temperature stop, process guard, restore of power and clock settings) by calling the same code, not a copy. Not designed or built yet.
+
 ## Parked ideas
 
 - **Network boot (PXE) for Noodlecart (2026-11-08):** useful later, especially for clean test images and the refurbisher case of booting many machines into GPUDoc without touching their drives. It needs a boot server on the LAN and DHCP changes on the household network, so plan it in small, reversible steps. Not needed for OS switching, which `efibootmgr --bootnext` and `bcdedit` already handle.
