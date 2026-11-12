@@ -75,7 +75,7 @@ All four installed with Tim's go-ahead ("Build the DCGM anyway ... add gpu-fryer
 - gpu-burn and gpu-fryer agree within 1% on the Ti and 4% on the 1060.
 - llama-bench and Wattever agree within 4% on both cards, from two different tools and engines (llama-bench direct, Wattever through `llama-server`).
 - LocalScore's Ti figure is the odd one out again, at the same low power as its first run. Its 1060 figure isn't comparable with the others, because it uses a 1B model.
-- A clean rerun is needed for records without the false RUN-001.
+- **Clean rerun, 2026-11-12 04:51 to 05:35 UTC, same script, fixed leftover check:** all 12 steps PASS, both cards PASS overall, no leftovers, no driver errors, all at stock clocks, memory rising only on the selected card. Results in `captures/noodlecart/all-adapters-20261112-045134-mint` (private). Figures matched the first run within 3%: Ti gpu-burn 4,729 Gflop/s, gpu-fryer 4,767, llama-bench 41.5 tokens/s, Wattever 40.0, LocalScore 36.7 (again at low power, 65.9 W); 1060 gpu-burn 3,028, gpu-fryer 3,116, llama-bench 27.1, Wattever 26.1, LocalScore 70.4. Wattever's prompt speed on the 1060 moved most, 142.2 to 170.1 tokens/s.
 
 ## Phase 2: `gpudoc test`
 
