@@ -1,0 +1,21 @@
+GPU fryer is a tool to stress test GPUs and detect any abnormal thermal throttling or performance degradation. It is especially useful to test GPUs running ML inference or training workloads for which performances are dictated by the slowest GPU in the system.
+
+Usage: gpu-fryer [OPTIONS] [DURATION_SECS]
+
+Arguments:
+  [DURATION_SECS]  Duration in seconds to burn the GPUs [default: 60]
+
+Options:
+      --nvml-lib-path <NVML_LIB_PATH>
+          Path to NVIDIA Management Library (libnvidia-ml.so) [default: /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1]
+      --tolerate-software-throttling
+          Tolerate software throttling if the TFLOPS are in the acceptable range
+      --tflops-tolerance <TFLOPS_TOLERANCE>
+          TFLOPS tolerance (%) compared to best GPU If the TFLOPS are within `tflops_tolerance`% of the best performing GPU, test will pass [default: 10]
+      --use-bf16 <USE_BF16>
+          Use BF16 precision instead of FP32. GPU must support BF16 type. If unset, will use BF16 only if all GPUs support it [possible values: true, false]
+  -h, --help
+          Print help
+  -V, --version
+          Print version
+gpu-fryer 1.0.0

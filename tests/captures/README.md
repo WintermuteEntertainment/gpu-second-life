@@ -25,9 +25,16 @@ Compute tools, all from Noodlecart on Linux Mint with the GTX 1660 Ti (bus 01) a
 
 - `tune_gtx1660ti`: the `tune.json` from two real `gpudoc tune` runs on the Ti, 2026-11-11, plus trimmed copies of three step results (state, findings, summary, clock offsets and driver log only; the inspect data with identifiers is left out). `mint_gpu_burn_*` is the Mint run where every step to +150 MHz passed. `windows_memtest_*` is the Windows run where Windows Update replaced the driver during the +75 MHz step, so that step's crash is a driver swap, not an overclock failure.
 
+- `dcgm_gtx1660ti_gtx1060_mint`: real `dcgmi` 4.8.0 output, 2026-11-12: `discovery -l` (UUIDs removed), level 1 runs before persistence mode was on (the 1060's Persistence Mode failure, the Ti's missing CUDA 13 plugin error), passing level 1 runs on both cards, and a level 2 run on the 1060 with its memory and PCIe tests skipped.
+- `gpu_fryer_mint_30s`: real gpu-fryer 1.0.0 output, 30 s per card with `CUDA_VISIBLE_DEVICES` set, 2026-11-12. The card UUIDs are replaced with placeholder values.
+- `localscore_mint`: real LocalScore 0.9.3 runs on each card with the network blocked and `-n`, plus its help text and GPU list, 2026-11-12. The home folder name is replaced with `USER`.
+- `wattever_gtx1660ti_mint`: a real Wattever 2.6.1 run through `wattever_run.py` on the Ti, 2026-11-12, trimmed to the fields GPUDoc reads (the full file records the motherboard, firmware and storage models), and the driver's final line with the file path replaced by `RUN_FILE`.
+
+- `gpu_burn_gtx1660ti_mint_plus225_errors`: real gpu-burn output from the Ti at +225 MHz during `gpudoc tune`, 2026-11-11, with 144 result errors in about 3 seconds. UUIDs removed.
+
 ## Not yet verified on real output
 
-- A failing gpu-burn run (result errors or a FAULTY verdict)
+- gpu-burn's FAULTY verdict line (the real failing run below was stopped before gpu-burn printed one)
 - Two installed cards with the same name, for llama-bench and gpu-burn selection
 
 - Numeric ECC, page retirement, and row remapping values

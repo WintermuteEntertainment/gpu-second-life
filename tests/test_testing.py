@@ -10,7 +10,7 @@ from pathlib import Path
 from gpudoc.inspect_core import CaptureRunner, inspect, parse_valid_fields
 import json
 
-from gpudoc.testing import (Evidence, GpuBurn, LlamaBench, MemtestVulkan, load_findings, strayed, track_load, combine, device_check, energy_wh, evaluate, memtest_label_for,
+from gpudoc.testing import (DcgmDiag, Evidence, GpuBurn, GpuFryer, LlamaBench, LocalScore, Wattever, MemtestVulkan, load_findings, strayed, track_load, combine, device_check, energy_wh, evaluate, memtest_label_for,
                             parse_bus_id, parse_xid, resolve_sample_fields, select_gpu, stop_and_confirm, temp_limit_for,
                             wait_until_idle)
 
@@ -197,6 +197,15 @@ class RealProcessControl(unittest.TestCase):
                     break
                 time.sleep(0.1)
             self.assertFalse(alive(int(child)), f"child {child} outlived its killed parent (guard {guard})")
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "the command-line match is Linux only")
+    def test_shell_that_started_gpudoc_is_not_a_leftover(self):
+        # Found in a real run on 2026-11-12: the launching shell's command line named every tool, so each one was
+        # wrongly reported as left running. Here a real shell names a tool and runs the check as its child.
+        code = ("import sys; sys.path.insert(0, %r); from gpudoc.testing import still_running; "
+                "from gpudoc.inspect_core import LocalRunner; print(len(still_running('gpu_burn_marker_x', LocalRunner())))") % str(Path(__file__).parents[1] / "src")
+        out = subprocess.run(["sh", "-c", f"{sys.executable} -c \"{code}\" # gpu_burn_marker_x"], capture_output=True, text=True, timeout=60)
+        self.assertEqual(out.stdout.strip(), "0", out.stderr)
 
     def test_already_exited_process_is_reported(self):
         p = subprocess.Popen([sys.executable, "-c", "pass"])
@@ -478,6 +487,20 @@ class RealGpuBurn(unittest.TestCase):
         self.assertEqual(GpuBurn("gpu_burn", 300).command()[1:], ["300"])
 
 
+class RealGpuBurnErrors(unittest.TestCase):
+    """A real failing gpu-burn run: the GTX 1660 Ti at +225 MHz during `gpudoc tune` on Mint, 2026-11-11, which
+    produced wrong results within seconds. The first real failing output, so CMP-001 is no longer unverified."""
+
+    def test_wrong_results_fail_the_run(self):
+        tool = GpuBurn("gpu_burn").parse((CAPTURES / "gpu_burn_gtx1660ti_mint_plus225_errors" / "stdout.txt").read_bytes().decode("utf-8"))
+        self.assertFalse(tool["completed"])
+        self.assertTrue(tool["failure_lines"])
+        self.assertIn("errors: ", tool["failure_lines"][0])
+        r = evaluate(ev(tool, [{"temperature_gpu": 57, "memory_used": 5000}]))
+        self.assertEqual(r["state"], "FAIL")
+        self.assertIn("CMP-001", [f["rule"] for f in r["findings"]])
+
+
 class RealGpuBurnThroughGpudoc(unittest.TestCase):
     """A real 300-second `gpudoc test --gpu-burn` run on the GTX 1060, Mint, 2026-11-10, with the 1660 Ti also installed."""
 
@@ -582,6 +605,147 @@ class RealTune(unittest.TestCase):
         self.assertIn("No offset above stock was confirmed stable.", text)
         self.assertIn("First problem at +75 MHz", text)
         self.assertIn("NO, run gpudoc tune --reset", text)
+
+
+class RealDcgm(unittest.TestCase):
+    """Real `dcgmi` output from DCGM 4.8.0 on Mint, 2026-11-12, GTX 1660 Ti (bus 01) and GTX 1060 (bus 02)."""
+
+    FOLDER = CAPTURES / "dcgm_gtx1660ti_gtx1060_mint"
+
+    def parse(self, name, entity=None, dev=None):
+        a = DcgmDiag()
+        a.entity, a.expect_dev = entity, dev
+        return a, a.parse((self.FOLDER / name).read_text(encoding="utf-8"))
+
+    def test_discovery_maps_bus_ids_to_dcgm_ids(self):
+        ids = DcgmDiag.parse_discovery((self.FOLDER / "discovery.txt").read_text(encoding="utf-8"))
+        self.assertEqual(ids, {parse_bus_id("01:00.0"): 0, parse_bus_id("02:00.0"): 1})
+
+    def test_passing_level_1_run_passes(self):
+        a, tool = self.parse("pm_diag_r1_gpu0.json", 0, "2182")
+        self.assertTrue(tool["completed"])
+        self.assertEqual(tool["tests"], [{"category": "Deployment", "name": "software", "status": "Pass"}])
+        self.assertIsNone(a.verify(tool))
+        self.assertEqual(evaluate(ev(tool, [{"temperature_gpu": 40, "memory_used": 300}]))["state"], "PASS")
+
+    def test_persistence_mode_failure_needs_attention_not_a_fail(self):
+        # The real run before persistence mode was turned on.
+        _, tool = self.parse("diag_r1_gpu1.json", 1, "1c03")
+        r = evaluate(ev(tool, [{"temperature_gpu": 40, "memory_used": 300}]))
+        self.assertEqual(r["state"], "ATTENTION")
+        self.assertIn("Persistence Mode", next(f["text"] for f in r["findings"] if f["rule"] == "DCG-001"))
+
+    def test_missing_plugin_error_is_inconclusive(self):
+        # The real Ti run before DCGM's CUDA 13 plugins were installed.
+        _, tool = self.parse("diag_r1_gpu0.json", 0, "2182")
+        self.assertFalse(tool["completed"])
+        r = evaluate(ev(tool, [{"temperature_gpu": 40, "memory_used": 300}]))
+        self.assertEqual(r["state"], "INCONCLUSIVE")
+        self.assertIn("RUN-016", [f["rule"] for f in r["findings"]])
+
+    def test_level_2_skips_are_noted_on_geforce(self):
+        _, tool = self.parse("pm_diag_r2_gpu1.json", 1, "1c03")
+        r = evaluate(ev(tool, [{"temperature_gpu": 40, "memory_used": 300}]))
+        self.assertEqual(r["state"], "PASS")
+        self.assertEqual([f["rule"] for f in r["findings"]].count("DCG-002"), 2)
+
+    def test_other_card_is_caught(self):
+        a, tool = self.parse("pm_diag_r1_gpu1.json", 0, "2182")
+        self.assertEqual(a.verify(tool)["rule"], "RUN-008")
+
+
+class RealGpuFryer(unittest.TestCase):
+    """Real gpu-fryer 1.0.0 output, 30 s on each card, Mint, 2026-11-12, run with CUDA_VISIBLE_DEVICES set to one card.
+    The UUIDs in the captures are replaced with placeholder values."""
+
+    FOLDER = CAPTURES / "gpu_fryer_mint_30s"
+
+    def tool(self, g):
+        return GpuFryer("gpu-fryer").parse((self.FOLDER / f"gpu{g}_stdout.txt").read_text(encoding="utf-8"))
+
+    def test_real_runs_parse_as_complete(self):
+        ti, gtx1060 = self.tool(0), self.tool(1)
+        self.assertTrue(ti["completed"] and gtx1060["completed"])
+        self.assertEqual((ti["gflops"], gtx1060["gflops"]), (5014, 3474))
+        self.assertEqual(ti["attention_lines"], [])
+        self.assertEqual(ti["detected"][0]["name"], "NVIDIA GeForce GTX 1660 Ti")
+
+    def test_summary_without_the_healthy_line_is_not_a_pass(self):
+        text = (self.FOLDER / "gpu0_stdout.txt").read_text(encoding="utf-8").replace("All GPUs seem healthy", "")
+        tool = GpuFryer("gpu-fryer").parse(text)
+        self.assertFalse(tool["completed"])
+        self.assertIn("CMP-002", [f["rule"] for f in evaluate(ev(tool, [{"temperature_gpu": 50, "memory_used": 5000}]))["findings"]])
+
+    def test_detected_card_is_checked(self):
+        a = GpuFryer("gpu-fryer")
+        a.expect_uuid = "00000000-0000-0000-0000-000000000000"
+        self.assertIsNone(a.verify(self.tool(0)))
+        self.assertEqual(a.verify(self.tool(1))["rule"], "RUN-008")
+
+    def test_selection_limits_it_to_one_card(self):
+        report, _ = inspect(CaptureRunner(CAPTURES / "gtx1660ti_gtx1060_driver58017804_mint"))
+        a = GpuFryer("gpu-fryer")
+        if not sys.platform.startswith("linux"):
+            self.assertIn("Linux", a.prepare(report["gpus"], report["gpus"][1], None))
+            return
+        self.assertIsNone(a.prepare(report["gpus"], report["gpus"][1], None))
+        self.assertEqual(a.env, {"CUDA_DEVICE_ORDER": "PCI_BUS_ID", "CUDA_VISIBLE_DEVICES": "1"})
+
+
+class RealLocalScore(unittest.TestCase):
+    """Real LocalScore 0.9.3 runs on Mint, 2026-11-12, one per card, network blocked, with -n."""
+
+    FOLDER = CAPTURES / "localscore_mint"
+
+    def tool(self, g):
+        return LocalScore("localscore", "m.gguf", block_network=False).parse((self.FOLDER / f"run_gpu{g}.stdout").read_text(encoding="utf-8"))
+
+    def test_real_runs_parse_and_confirm_nothing_was_sent(self):
+        ti, gtx1060 = self.tool(0), self.tool(1)
+        self.assertTrue(ti["completed"] and gtx1060["completed"])
+        self.assertEqual((ti["generation_tokens_per_second"], gtx1060["generation_tokens_per_second"]), (37.06, 71.78))
+        self.assertEqual(len(ti["localscore_tests"]), 9)
+        self.assertEqual(ti["attention_lines"], [])
+
+    def test_missing_not_submitted_line_needs_attention(self):
+        text = (self.FOLDER / "run_gpu0.stdout").read_text(encoding="utf-8").replace("Results Not Submitted.", "")
+        tool = LocalScore("localscore", "m.gguf", block_network=False).parse(text)
+        self.assertFalse(tool["completed"])
+        self.assertIn("can't be confirmed", tool["attention_lines"][0])
+
+    def test_card_is_picked_by_name_and_checked(self):
+        report, _ = inspect(CaptureRunner(CAPTURES / "gtx1660ti_gtx1060_driver58017804_mint"))
+        a = LocalScore("localscore", "m.gguf", block_network=False)
+        self.assertIsNone(a.prepare(report["gpus"], report["gpus"][1], Replay((self.FOLDER / "list_gpus.txt").read_text(encoding="utf-8"))))
+        self.assertEqual(a.index, 1)
+        self.assertEqual(a.command()[-6:], ["-g", "nvidia", "-i", "1", "-n", "-o", "json"][-6:])
+        self.assertNotIn("-y", a.command())
+        self.assertIsNone(a.verify(self.tool(1)))
+        self.assertEqual(a.verify(self.tool(0))["rule"], "RUN-008")
+
+    def test_linux_runs_have_no_network(self):
+        a = LocalScore("localscore", "m.gguf", block_network=True)
+        self.assertEqual(a.command()[:4], ["sudo", "-n", "unshare", "-n"])
+
+
+class RealWattever(unittest.TestCase):
+    """A real Wattever 2.6.1 run through GPUDoc's driver on the GTX 1660 Ti, Mint, 2026-11-12, trimmed to the fields read."""
+
+    FOLDER = CAPTURES / "wattever_gtx1660ti_mint"
+
+    def test_real_run_parses(self):
+        tmp = Path(tempfile.mkdtemp())
+        run = tmp / "run.json"
+        run.write_text((self.FOLDER / "run_trimmed.json").read_text(encoding="utf-8"), encoding="utf-8")
+        text = (self.FOLDER / "driver_tail.txt").read_text(encoding="utf-8").replace("RUN_FILE", str(run).replace("\\", "/"))
+        tool = Wattever("w", "s", "m").parse(text)
+        self.assertTrue(tool["completed"])
+        self.assertEqual((tool["results"], tool["ok"]), (4, 4))
+        self.assertEqual([x["prompt_tokens"] for x in tool["wattever_sizes"]], [512, 4000])
+        self.assertAlmostEqual(tool["generation_tokens_per_second"], 41.17, places=1)
+
+    def test_missing_result_line_is_not_complete(self):
+        self.assertFalse(Wattever("w", "s", "m").parse("llama-server ready")["completed"])
 
 
 class RealLlamaDeviceSelection(unittest.TestCase):

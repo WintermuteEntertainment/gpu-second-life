@@ -1,0 +1,40 @@
+Detected GPU #0: "NVIDIA GeForce GTX 1660 Ti" (00000000-0000-0000-0000-000000000000)
+Using FP32
+Creating random matrices
+Matrices created
+GPU #0: Using 4920 MB out of 5467 MB
+0 (0 Gflops/s) | Temperatures: 36°C | Throttling: None
+1026 (1128098 Gflops/s) | Temperatures: 44°C | Throttling: None
+4 (4398 Gflops/s) | Temperatures: 45°C | Throttling: None
+5 (5497 Gflops/s) | Temperatures: 46°C | Throttling: None
+4 (4398 Gflops/s) | Temperatures: 46°C | Throttling: None
+5 (5497 Gflops/s) | Temperatures: 47°C | Throttling: None
+4 (4398 Gflops/s) | Temperatures: 47°C | Throttling: None
+5 (5497 Gflops/s) | Temperatures: 48°C | Throttling: None
+5 (5497 Gflops/s) | Temperatures: 48°C | Throttling: None
+4 (4398 Gflops/s) | Temperatures: 49°C | Throttling: None
+5 (5497 Gflops/s) | Temperatures: 49°C | Throttling: None
+4 (4398 Gflops/s) | Temperatures: 50°C | Throttling: None
+5 (5497 Gflops/s) | Temperatures: 50°C | Throttling: None
+4 (4398 Gflops/s) | Temperatures: 50°C | Throttling: None
+5 (5497 Gflops/s) | Temperatures: 51°C | Throttling: None
+4 (4398 Gflops/s) | Temperatures: 52°C | Throttling: None
+5 (5497 Gflops/s) | Temperatures: 52°C | Throttling: None
+4 (4398 Gflops/s) | Temperatures: 52°C | Throttling: None
+5 (5497 Gflops/s) | Temperatures: 53°C | Throttling: None
+5 (5497 Gflops/s) | Temperatures: 53°C | Throttling: None
+4 (4398 Gflops/s) | Temperatures: 53°C | Throttling: None
+5 (5497 Gflops/s) | Temperatures: 54°C | Throttling: None
+4 (4398 Gflops/s) | Temperatures: 54°C | Throttling: None
+5 (5497 Gflops/s) | Temperatures: 55°C | Throttling: None
+4 (4398 Gflops/s) | Temperatures: 55°C | Throttling: None
+5 (5497 Gflops/s) | Temperatures: 55°C | Throttling: None
+4 (4398 Gflops/s) | Temperatures: 56°C | Throttling: None
+5 (5497 Gflops/s) | Temperatures: 56°C | Throttling: None
+4 (4398 Gflops/s) | Temperatures: 56°C | Throttling: None
+5 (5497 Gflops/s) | Temperatures: 57°C | Throttling: None
+GPU #0:   5014 Gflops/s (min: 4398.05, max: 5497.56, dev: 5013.77)
+         Temperature: 52.08°C (min: 47.00, max: 57.00)
+         Throttling HW: false, Thermal SW: false, Thermal HW: false
+All GPUs seem healthy
+Freeing GPUs...

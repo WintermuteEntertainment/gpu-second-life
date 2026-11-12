@@ -164,10 +164,12 @@ def to_text(result: dict) -> str:
              "| GPU clock offset | Result | Speed | vs stock | Avg power | Speed per W | Avg clock | Peak temp |", "|---|---|---|---|---|---|---|---|"]
 
     def row(s, label=None):
-        gain = f"{100 * (s['speed'] / b['speed'] - 1):+.1f}%" if s.get("speed") and b.get("speed") and s is not b else ""
+        # A failed step's speed counts wrong results too, so it isn't shown as a gain.
+        gain = f"{100 * (s['speed'] / b['speed'] - 1):+.1f}%" if s.get("ok") and s.get("speed") and b.get("speed") and s is not b else ""
         verdict = "stable" if s.get("ok") else "FAILED"
-        return (f"| {label or ('+' + str(s['gpu_clock_offset_mhz']) + ' MHz')} | {verdict} | {s.get('speed', '?')} {unit} | {gain} | "
-                f"{s.get('avg_power_w') or '?'} W | {s.get('speed_per_watt', '?')} | {s.get('avg_gpu_clock_mhz') or '?'} MHz | {s.get('peak_temp') or '?'} C |")
+        speed = f"{s.get('speed', '?')} {unit}" if s.get("ok") else "not valid"
+        return (f"| {label or ('+' + str(s['gpu_clock_offset_mhz']) + ' MHz')} | {verdict} | {speed} | {gain} | "
+                f"{s.get('avg_power_w') or '?'} W | {s.get('speed_per_watt', '?') if s.get('ok') else ''} | {s.get('avg_gpu_clock_mhz') or '?'} MHz | {s.get('peak_temp') or '?'} C |")
 
     lines.append(row(b, "stock"))
     lines += [row(s) for s in result["steps"]]

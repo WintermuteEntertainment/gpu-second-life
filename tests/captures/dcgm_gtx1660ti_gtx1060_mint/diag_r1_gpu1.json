@@ -1,0 +1,73 @@
+{
+	"DCGM Diagnostic" : 
+	{
+		"test_categories" : 
+		[
+			{
+				"category" : "Deployment",
+				"tests" : 
+				[
+					{
+						"name" : "software",
+						"results" : 
+						[
+							{
+								"entity_group" : "GPU",
+								"entity_group_id" : 1,
+								"entity_id" : 1,
+								"status" : "Fail",
+								"warnings" : 
+								[
+									{
+										"error_category" : 8,
+										"error_id" : 29,
+										"error_severity" : 5,
+										"warning" : "Persistence Mode: Persistence mode for GPU 1 is disabled. Enable persistence mode by running \"nvidia-smi -i <gpuId> -pm 1 \" as root."
+									}
+								]
+							}
+						],
+						"test_summary" : 
+						{
+							"info" : 
+							[
+								"Error getting the SRAM Threshold Count for GPU 1. Status = 0. Value = 9223372036854775794. SRAM Threshold checking was skipped.",
+								"Test runtime: 0.015 seconds"
+							],
+							"status" : "Fail",
+							"warnings" : 
+							[
+								{
+									"error_category" : 8,
+									"error_id" : 29,
+									"error_severity" : 5,
+									"warning" : "Persistence Mode: Persistence mode for GPU 1 is disabled. Enable persistence mode by running \"nvidia-smi -i <gpuId> -pm 1 \" as root."
+								}
+							]
+						}
+					}
+				]
+			}
+		]
+	},
+	"entity_groups" : 
+	[
+		{
+			"entities" : 
+			[
+				{
+					"device_id" : "1c03",
+					"entity_id" : 1,
+					"serial_num" : "<<<NOT_SUPPORTED>>>"
+				}
+			],
+			"entity_group" : "GPU",
+			"entity_group_id" : 1
+		}
+	],
+	"metadata" : 
+	{
+		"Driver Version Detected" : "580.178.04",
+		"version" : "4.8.0"
+	}
+}

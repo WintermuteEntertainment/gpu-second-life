@@ -53,7 +53,7 @@ def cmd_inspect(a) -> int:
 
 
 def cmd_test(a) -> int:
-    from .testing import GpuBurn, LlamaBench, MemtestVulkan, describe_gpu, run_suite, select_gpu, temp_limit_for
+    from .testing import DcgmDiag, GpuBurn, GpuFryer, LlamaBench, LocalScore, MemtestVulkan, Wattever, describe_gpu, run_suite, select_gpu, temp_limit_for
     adapters = [MemtestVulkan(a.tool_path)] if a.tool_path else []
     if a.gpu_burn:
         if not sys.platform.startswith("linux"):
@@ -63,14 +63,34 @@ def cmd_test(a) -> int:
             print(f"Nothing was run. --burn-seconds {a.burn_seconds} needs --max-seconds of at least {a.burn_seconds + 60}.")
             return 3
         adapters.append(GpuBurn(a.gpu_burn, a.burn_seconds))
-    if a.llama_bench or a.model:
+    if a.dcgm:
+        adapters.insert(0, DcgmDiag(a.dcgm, a.dcgm_level))
+    if a.gpu_fryer:
+        if not sys.platform.startswith("linux"):
+            print("Nothing was run. gpu-fryer only runs on Linux.")
+            return 3
+        if a.fryer_seconds + 60 > a.max_seconds:
+            print(f"Nothing was run. --fryer-seconds {a.fryer_seconds} needs --max-seconds of at least {a.fryer_seconds + 60}.")
+            return 3
+        adapters.append(GpuFryer(a.gpu_fryer, a.fryer_seconds))
+    if a.llama_bench or (a.model and not a.wattever):
         if not (a.llama_bench and a.model):
             print("--llama-bench and --model must be used together.")
             return 3
         # The tool is started from the run folder, so both paths must not depend on the current folder.
         adapters.append(LlamaBench(str(Path(a.llama_bench).resolve()), str(Path(a.model).resolve())))
+    if a.localscore or a.localscore_model:
+        if not (a.localscore and a.localscore_model):
+            print("--localscore and --localscore-model must be used together.")
+            return 3
+        adapters.append(LocalScore(a.localscore, a.localscore_model))
+    if a.wattever:
+        if not (a.llama_server and a.model):
+            print("--wattever needs --llama-server and --model.")
+            return 3
+        adapters.append(Wattever(a.wattever, a.llama_server, a.model))
     if not adapters:
-        print("Nothing was run. Choose at least one tool: --tool-path (memtest_vulkan), --gpu-burn, or --llama-bench with --model.")
+        print("Nothing was run. Choose at least one tool: --tool-path (memtest_vulkan), --gpu-burn, --gpu-fryer, --dcgm, or --llama-bench with --model.")
         return 3
     report, _ = inspect(LocalRunner())
     if a.gpu == "all":
@@ -199,6 +219,14 @@ def main(argv=None) -> int:
     t.add_argument("--tool-path", help="Path to memtest_vulkan, for the memory test")
     t.add_argument("--gpu-burn", help="Path to gpu_burn, to add a compute stress test (Linux only)")
     t.add_argument("--burn-seconds", type=int, default=300, help="How long gpu-burn runs. Default 300")
+    t.add_argument("--gpu-fryer", help="Path to gpu-fryer, to add a load and throttling test (Linux only)")
+    t.add_argument("--fryer-seconds", type=int, default=300, help="How long gpu-fryer runs. Default 300")
+    t.add_argument("--dcgm", nargs="?", const="dcgmi", help="Run Nvidia DCGM diagnostics first (Linux; optional path to dcgmi)")
+    t.add_argument("--localscore", help="Path to the LocalScore binary. Results are never uploaded; on Linux it also runs with no network")
+    t.add_argument("--localscore-model", help="GGUF model for LocalScore, such as its 1B reference model")
+    t.add_argument("--wattever", help="Path to Wattever's folder, to add its speed and power benchmark (uses --model)")
+    t.add_argument("--llama-server", help="Path to llama.cpp's llama-server, for --wattever")
+    t.add_argument("--dcgm-level", type=int, default=1, help="DCGM run level. GeForce cards support level 1 only. Default 1")
     t.add_argument("--gpu", help="Card to test, by nvidia-smi index or PCI bus ID such as 02:00.0, or 'all' for each card in turn. "
                                  "Required when more than one GPU is installed")
     t.add_argument("--llama-bench", help="Path to llama-bench, to add an AI workload")

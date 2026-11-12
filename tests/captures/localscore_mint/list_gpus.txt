@@ -1,0 +1,42 @@
+import_cuda_impl: initializing gpu module...
+extracting /zip/llama.cpp/ggml.h to /home/USER/.llamafile/v/0.9.3/ggml.h
+extracting /zip/llamafile/compcap.cu to /home/USER/.llamafile/v/0.9.3/compcap.cu
+extracting /zip/llamafile/llamafile.h to /home/USER/.llamafile/v/0.9.3/llamafile.h
+extracting /zip/llamafile/tinyblas.h to /home/USER/.llamafile/v/0.9.3/tinyblas.h
+extracting /zip/llamafile/tinyblas.cu to /home/USER/.llamafile/v/0.9.3/tinyblas.cu
+extracting /zip/llama.cpp/ggml-impl.h to /home/USER/.llamafile/v/0.9.3/ggml-impl.h
+extracting /zip/llama.cpp/ggml-cuda.h to /home/USER/.llamafile/v/0.9.3/ggml-cuda.h
+extracting /zip/llama.cpp/ggml-alloc.h to /home/USER/.llamafile/v/0.9.3/ggml-alloc.h
+extracting /zip/llama.cpp/ggml-common.h to /home/USER/.llamafile/v/0.9.3/ggml-common.h
+extracting /zip/llama.cpp/ggml-backend.h to /home/USER/.llamafile/v/0.9.3/ggml-backend.h
+extracting /zip/llama.cpp/ggml-backend-impl.h to /home/USER/.llamafile/v/0.9.3/ggml-backend-impl.h
+extracting /zip/llama.cpp/ggml-cuda.cu to /home/USER/.llamafile/v/0.9.3/ggml-cuda.cu
+get_rocm_bin_path: note: hipcc not found on $PATH
+get_rocm_bin_path: note: $HIP_PATH/bin/hipcc does not exist
+get_rocm_bin_path: note: /opt/rocm/bin/hipcc does not exist
+extracting /zip/ggml-rocm.so to /home/USER/.llamafile/v/0.9.3/ggml-rocm.so
+link_cuda_dso: note: dynamically linking /home/USER/.llamafile/v/0.9.3/ggml-rocm.so
+link_cuda_dso: warning: libamdhip64.so.6: cannot open shared object file: No such file or directory: failed to load library
+import_cuda_impl: won't compile AMD GPU support because $HIP_PATH/bin/clang++ is missing
+extracting /zip/ggml-rocm.so to /home/USER/.llamafile/v/0.9.3/ggml-rocm.so
+link_cuda_dso: note: dynamically linking /home/USER/.llamafile/v/0.9.3/ggml-rocm.so
+link_cuda_dso: warning: libamdhip64.so.6: cannot open shared object file: No such file or directory: failed to load library
+extracting /zip/ggml-cuda.so to /home/USER/.llamafile/v/0.9.3/ggml-cuda.so
+link_cuda_dso: note: dynamically linking /home/USER/.llamafile/v/0.9.3/ggml-cuda.so
+ggml_cuda_link: CUDA kernel version 13.0
+ggml_cuda_link: CUDA runtime version is 12.8
+ggml_cuda_link: welcome to CUDA SDK with cuBLAS
+link_cuda_dso: GPU support loaded
+ggml_cuda_init: GGML_CUDA_FORCE_MMQ:    no
+ggml_cuda_init: GGML_CUDA_FORCE_CUBLAS: no
+ggml_cuda_init: found 2 CUDA devices:
+  Device %d: %s, compute capability %d.%d, VMM: %s
+  Device %d: %s, compute capability %d.%d, VMM: %s
+
+[0;32m==================== Available GPUs ====================
+
+0: NVIDIA GeForce GTX 1660 Ti - 5.61 GiB
+1: NVIDIA GeForce GTX 1060 6GB - 5.92 GiB
+
+======================================================================
+[0m

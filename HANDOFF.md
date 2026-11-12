@@ -37,9 +37,49 @@ Working on the GTX 1660 over SSH, locally on Windows, and in WSL2, with JSON, Ma
 - Done 2026-11-08: the narrow-link note now gives both widths (for example x4 of x16), says slots, risers and adapters often limit width, and that this alone doesn't point to a fault in the card. A test on the real Mint capture checks it.
 - Real numeric ECC values and other bracketed errors. See `tests/captures/README.md`.
 
+## New adapters, research 2026-11-11 (Tim asked for DCGM, gpu-fryer, Wattever and LocalScore)
+
+From the tools' own docs and source, read from PT; nothing installed yet. gpu-burn stays the default compute test.
+
+- **DCGM `dcgmi diag` 4.7.1:** GeForce cards from Maxwell on are supported, but only **level 1**, a quick deployment check, not a stress test. Package `datacenter-gpu-manager-4-cuda12` (Nvidia says driver-580 systems with Pascal cards use the CUDA 12 build) from Nvidia's CUDA apt repo, which needs adding with `cuda-keyring`. Runs through the `nvidia-dcgm` service (`nv-hostengine`) and needs root. `-i` picks GPUs by DCGM's own ID (mapping to bus IDs via `dcgmi discovery -l`), `-j` gives JSON with a `test_summary.status`. Its deployment check fails if a graphics process runs on the card, which affects the Ti while a desktop is up.
+- **gpu-fryer 1.1.0 (Apache-2.0, Hugging Face):** installed with `cargo install gpu-fryer`; no release binary. Uses cuBLAS. No GPU selection flag; it tests every card and compares them. `CUDA_VISIBLE_DEVICES` should limit it to one card (unverified). Plain-text output with per-card Gflop/s, temperature and throttle flags, then "All GPUs seem healthy". Failure text and exit code not documented. Pascal support depends on the CUDA build; unverified.
+- **Wattever 2.6.1 (MIT, 2026-11-06):** doesn't run models itself. It benchmarks an OpenAI-compatible endpoint, such as `llama-server` from the llama.cpp build already on Mint, through a local web page. Results are one JSON file per run in `results/runs/`, schema version 2, without GPU UUIDs, serials, usernames or hostnames. GPU power comes from `nvidia-smi`. Plan from PLAN.md stands: import its JSON. Whether it can run without the web page is unknown.
+- **LocalScore 0.9.3 (CLI MIT):** a single binary from `blob.localscore.ai`, run as `localscore -m model.gguf`. Its reference models are Llama 3.2 1B (Tiny), an 8B and a 14B. **It asks before uploading to the public localscore.ai database by default.** `-n` / `--no-send-results` skips the upload; `-y` uploads without asking and must never be used. Passing both keeps whichever comes last, a bug in its check. With several cards it loops asking which one unless `-i` is given. `-o json` prints JSON mixed with other text. GPUDoc must always pass `-n` and `-i`, and the first run should be done with outbound network blocked to prove nothing is sent.
+
+### Installed on Mint and built into GPUDoc, 2026-11-11 to 12
+
+All four installed with Tim's go-ahead ("Build the DCGM anyway ... add gpu-fryer too. Add Wattever too. We def. want LocalScore, too."). Hashes are in the install logs in `~/gpudoc` on Mint.
+
+- **DCGM 4.8.0:** `datacenter-gpu-manager-4-cuda12` and `-cuda13` from Nvidia's CUDA apt repo (keyring `cuda-keyring_1.1-1_all.deb`, SHA-256 `d2a6b11c...a06dba`), about 2 GB downloaded and 10 GB on disk. The `nvidia-dcgm` service is enabled and running. **Driver safety:** the keyring package installs its own `cuda-repository-pin-600`, which ranked Nvidia's repo above Ubuntu's and would have let `apt upgrade` replace the driver with 580.196.07. `/etc/apt/preferences.d/00-gpudoc-nvidia-repo-dcgm-only` (sorted first) now limits that repo to `datacenter-gpu-manager*`; `apt-cache policy` confirms the driver stays at 580.178.04. One package from Nvidia's repo was already pulled in as a dependency before the fix: `libxnvctrl0` 620.70.06, replacing nothing (it wasn't installed). The Turing card needs the CUDA 13 plugin package; without it DCGM fails with a missing-plugin error. DCGM also needs persistence mode on (both cards had it off, and `nvidia-persistenced` runs without enabling it), so the adapter turns it on for the run and back off afterwards.
+- **gpu-fryer 1.0.0:** the only version on crates.io (the README's Docker tag says 1.1.0). Built with a current Rust toolchain from rustup in `~/.cargo` (Mint's own Rust 1.75 is too old), in `~/gpudoc/tools/gpu-fryer-1.0.0`. It has no card option, so the adapter sets `CUDA_VISIBLE_DEVICES`; it prints the card's UUID, which GPUDoc checks. **It hangs after printing "All GPUs seem healthy"** and never exits by itself; GPUDoc stops it once that line appears. It doesn't check its results, so it's a load and throttling test, not an error test.
+- **Wattever 2.6.1:** in `~/gpudoc/tools/wattever-2.6.1` (zip SHA-256 `c9dec5f9...eb7fbe`). `src/gpudoc/wattever_run.py` starts `llama-server` (llama.cpp b12177 Vulkan) on the selected card, starts Wattever with no browser, sends one benchmark through its local API, and shuts both down. Its result file records the motherboard, firmware and storage models, but no UUIDs, serials, usernames or hostnames. **Open:** Wattever labels runs "interrupted" with 4 tests remaining, although all 4 tests GPUDoc asked for completed OK; the source of the extra 4 is unknown.
+- **LocalScore 0.9.3:** binary (380,479,144 bytes, SHA-256 `19348450...47c397`) in `~/gpudoc/tools/localscore-0.9.3`, model `Llama-3.2-1B-Instruct-Q4_K_M.gguf` (807,694,464 bytes, SHA-256 matching bartowski's Hugging Face upload) in `~/gpudoc/models`. Whether this exact file is LocalScore's official Tiny model is unconfirmed; its pages name only the file name. GPUDoc always passes `-n` and runs it with `sudo -n unshare -n`, a network namespace with no network; checked by a failed lookup of `www.localscore.ai` inside it. Both runs printed "Results Not Submitted."
+- **LocalScore's 1660 Ti result is abnormal:** 37.1 generation tokens/s against 71.8 on the 1060, the reverse of every other tool. The Ti held 1,890 to 1,920 MHz but drew only 55 to 67 W; the 1060 drew 105 to 116 W. Best guess, unverified: LocalScore's bundled CUDA build (runtime 12.8) runs poorly on the GTX 16 series. Don't use LocalScore figures for the Ti until this is explained.
+- **New rules (draft-7):** DCG-001 (ATTENTION) for a DCGM test that isn't Pass or Skip, DCG-002 (NOTE) for a skipped test, CMP-002 (ATTENTION) for gpu-fryer throttling or no healthy verdict, RUN-016 (INCONCLUSIVE) for a tool error. 106 tests pass on PT and Mint.
+
+### First run of all six adapters through GPUDoc, Mint, 2026-11-12 01:50 to 02:34 UTC
+
+`gpudoc test --gpu all` with DCGM, gpu-burn (300 s), gpu-fryer (300 s), llama-bench, LocalScore and Wattever, each card in turn, nobody logged in at the monitor. Results in `captures/noodlecart/all-adapters-20261112-015023-mint` (private).
+
+**The saved states are wrong.** Every step after DCGM is recorded as INCONCLUSIVE with RUN-001 ("could not be confirmed stopped"). That was a GPUDoc bug, not leftovers: the new full-command-line leftover check matched the shell that launched the run, whose command line named every tool. Each flagged step counted exactly one leftover, and a check after the run found no tools running. Fixed the same night by skipping GPUDoc's own chain of parent processes, with a real-process test; 106 tests pass on PT and Mint. Apart from RUN-001, every step had only NOTE findings: no FAIL, no ATTENTION, no other INCONCLUSIVE. All steps ran at stock clocks with no driver errors, and memory use rose only on the selected card.
+
+| Step | GTX 1660 Ti | GTX 1060 |
+|---|---|---|
+| DCGM level 1 | PASS | PASS |
+| gpu-burn | 4,726 Gflop/s, 118.7 W, 77 C | 2,988 Gflop/s, 103.4 W, 82 C |
+| gpu-fryer | 4,763 Gflop/s, 118.5 W, 77 C, no throttling | 3,116 Gflop/s, 99.0 W, 82 C, driver temperature control (THM-003) |
+| llama-bench, Qwen2.5 7B | 41.2 generation, 418.6 prompt tokens/s | 27.1 generation, 178.5 prompt tokens/s |
+| LocalScore, Llama 3.2 1B | 36.8 generation tokens/s at 67.9 W (abnormal, see above) | 70.3 generation tokens/s at 102.5 W |
+| Wattever, Qwen2.5 7B, 512-token prompt | 39.6 generation tokens/s | 26.1 generation tokens/s |
+
+- gpu-burn and gpu-fryer agree within 1% on the Ti and 4% on the 1060.
+- llama-bench and Wattever agree within 4% on both cards, from two different tools and engines (llama-bench direct, Wattever through `llama-server`).
+- LocalScore's Ti figure is the odd one out again, at the same low power as its first run. Its 1060 figure isn't comparable with the others, because it uses a 1B model.
+- A clean rerun is needed for records without the false RUN-001.
+
 ## Phase 2: `gpudoc test`
 
-Draft in `src/gpudoc/testing.py`. It runs `memtest_vulkan` (memory), `gpu-burn` (compute, Linux only) and `llama-bench` (AI workload), each optional, with monitoring, a temperature stop, process-tree stopping, driver comparison, VRAM coverage, energy, and rules. 89 tests pass on PT (Python 3.11.9), 2026-11-11; 83 on Mint before the tune tests were added. Rules version `draft-6`. `gpudoc tune` is a separate command; see the Noodlecart section.
+Draft in `src/gpudoc/testing.py`. It runs `memtest_vulkan` (memory), `gpu-burn` (compute, Linux only) and `llama-bench` (AI workload), each optional, with monitoring, a temperature stop, process-tree stopping, driver comparison, VRAM coverage, energy, and rules. 106 tests pass on PT (Python 3.11.9) and on Mint (Python 3.12.3), 2026-11-12. Rules version `draft-7`. Adapters: memtest_vulkan, gpu-burn, gpu-fryer, DCGM, llama-bench, LocalScore and Wattever. `gpudoc tune` is a separate command; see the Noodlecart section.
 
 **Compute adapters, added 2026-11-10:**
 - **Flags:** `--tool-path` (memtest_vulkan) is now optional. `--gpu-burn PATH` with `--burn-seconds` (default 300) adds gpu-burn. `--llama-bench` with `--model` adds llama-bench. At least one tool is required.
@@ -119,6 +159,10 @@ Draft in `src/gpudoc/testing.py`. It runs `memtest_vulkan` (memory), `gpu-burn` 
     - Every step up to the default +150 MHz ceiling passed, so the card's real limit wasn't found. A higher ceiling would find it, at a higher risk of a driver crash.
     - The card was returned to stock (both offsets read 0 afterwards), and the kernel log showed no Xid lines.
     - Results in `captures/noodlecart/tune-20261111-172819-mint-gtx1660ti` (private). Trimmed copies of both tune runs are test captures in `tests/captures/tune_gtx1660ti`; 89 tests pass.
+  - **High-ceiling tune, Mint, Ti, gpu-burn, 2026-11-11 21:57 to 22:38 UTC, Tim's call to raise the ceiling and accept the risk:** 25 MHz steps up to +500 MHz. Every step to +200 MHz passed. **At +225 MHz gpu-burn found wrong results**: 144 errors within about 3 seconds, at 1,830 MHz. The driver didn't crash and the machine stayed up; the card computed wrong answers without any other sign. +200 MHz then passed the 300 s confirmation at 5,057 Gflop/s, **+4.2% over stock**, 1,760 MHz average, 77 C peak, 118.5 W. Card returned to stock; both offsets read 0 afterwards.
+    - **Verdict for the Ti:** stable limit between +200 and +225 MHz in gpu-burn. Recommended everyday setting would be below +200, to leave margin; not tested. The gain is small because the card sits at its 120 W power limit.
+    - **Why gpu-burn matters here:** a crash is easy to notice, but wrong results are silent. This is exactly what a self-checking stress tool exists to catch.
+    - Results in `captures/noodlecart/tune-20261111-215755-mint-gtx1660ti-high` (private). The tune report now shows "not valid" for a failed step's speed, because that figure counts wrong results too; the first version showed it as +8.9%.
   - **Still untested:** whether an offset survives a reboot, tune on the 1060, and a Windows tune rerun on a stable driver.
   - **Tim's direction:** keep overclocked results clearly apart from stock ones. Most people want maximum performance; miners and similar users value efficiency more. So the feature should find both points.
 

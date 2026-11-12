@@ -1,0 +1,75 @@
+{
+ "status": "interrupted",
+ "remaining_tests": 4,
+ "interrupted_note": "The selected tests finished. Other requested tests remain unfinished; use Add tests to continue them.",
+ "results": [
+  {
+   "target_tokens": 512,
+   "repeat": 0,
+   "status": "ok",
+   "prefill_tps": 156.65729482692583,
+   "decode_tps": 41.133652046025546,
+   "ttft_s": 3.370414385000913,
+   "power": {
+    "decode_gpu_w": 128.4236767421779,
+    "j_per_token_decode": 3.122107334366547,
+    "gpu_indices": [
+     0,
+     1
+    ],
+    "temp_c_max": 49.0
+   }
+  },
+  {
+   "target_tokens": 512,
+   "repeat": 1,
+   "status": "ok",
+   "prefill_tps": 226.2677823553203,
+   "decode_tps": 41.17849847622187,
+   "ttft_s": 2.2981619149977632,
+   "power": {
+    "decode_gpu_w": 124.53753159920163,
+    "j_per_token_decode": 3.0243339657252104,
+    "gpu_indices": [
+     0,
+     1
+    ],
+    "temp_c_max": 51.0
+   }
+  },
+  {
+   "target_tokens": 4000,
+   "repeat": 0,
+   "status": "ok",
+   "prefill_tps": 392.0815610536357,
+   "decode_tps": 39.05532824396814,
+   "ttft_s": 9.12055132200112,
+   "power": {
+    "decode_gpu_w": 124.14631943623209,
+    "j_per_token_decode": 3.1787293826010985,
+    "gpu_indices": [
+     0,
+     1
+    ],
+    "temp_c_max": 56.0
+   }
+  },
+  {
+   "target_tokens": 4000,
+   "repeat": 1,
+   "status": "ok",
+   "prefill_tps": 374.89917010311063,
+   "decode_tps": 38.64123197172241,
+   "ttft_s": 10.032030743001087,
+   "power": {
+    "decode_gpu_w": 123.94560305319867,
+    "j_per_token_decode": 3.2075996734240215,
+    "gpu_indices": [
+     0,
+     1
+    ],
+    "temp_c_max": 62.0
+   }
+  }
+ ]
+}

@@ -1,0 +1,55 @@
+{
+	"DCGM Diagnostic" : 
+	{
+		"test_categories" : 
+		[
+			{
+				"category" : "Deployment",
+				"tests" : 
+				[
+					{
+						"name" : "software",
+						"results" : 
+						[
+							{
+								"entity_group" : "GPU",
+								"entity_group_id" : 1,
+								"entity_id" : 0,
+								"status" : "Pass"
+							}
+						],
+						"test_summary" : 
+						{
+							"info" : 
+							[
+								"Error getting the SRAM Threshold Count for GPU 0. Status = 0. Value = 9223372036854775794. SRAM Threshold checking was skipped.",
+								"Test runtime: 0.031 seconds"
+							],
+							"status" : "Pass"
+						}
+					}
+				]
+			}
+		]
+	},
+	"entity_groups" : 
+	[
+		{
+			"entities" : 
+			[
+				{
+					"device_id" : "2182",
+					"entity_id" : 0,
+					"serial_num" : "<<<NOT_SUPPORTED>>>"
+				}
+			],
+			"entity_group" : "GPU",
+			"entity_group_id" : 1
+		}
+	],
+	"metadata" : 
+	{
+		"Driver Version Detected" : "580.178.04",
+		"version" : "4.8.0"
+	}
+}

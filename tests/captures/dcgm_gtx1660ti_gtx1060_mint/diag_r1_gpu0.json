@@ -1,0 +1,8 @@
+{
+	"DCGM Diagnostic" : 
+	{
+		"runtime_error" : "Error: Unable to complete diagnostic for entities 0. Return: (-30) : DCGM GPU Diagnostic returned an error\nError: Cannot load plugins. Unable to change to the plugin dir '/usr/libexec/datacenter-gpu-manager-4/plugins/cuda13/': 'No such file or directory'\n",
+		"version" : "4.8.0"
+	}
+}
+

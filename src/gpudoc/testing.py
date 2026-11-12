@@ -178,10 +178,9 @@ class GpuBurn:
             return "gpu-burn only runs on Linux, so it didn't run."
         if len(gpus) == 1:
             return None
-        keyed = [(parse_bus_id(g["details"].get("pci_bus_id")), g) for g in gpus]
-        if any(k is None for k, _ in keyed):
+        number = _bus_rank(gpus, target)
+        if number is None:
             return "A card's PCI bus ID is unknown, so gpu-burn's device number can't be worked out, and it didn't run."
-        number = next(i for i, (_, g) in enumerate(sorted(keyed, key=lambda kg: kg[0])) if g is target)
         name = target["fields"]["name"]["value"]
         listed = self.parse_list(self.list_devices())
         if listed.get(number) != name:
@@ -209,6 +208,356 @@ class GpuBurn:
             "gflops": int(progress[-1].group(3)) if progress else None,
             "memory_test": False,
         }
+
+
+def _bus_rank(gpus: list[dict], target: dict) -> int | None:
+    """The card's position in PCI bus order, which is CUDA's order under CUDA_DEVICE_ORDER=PCI_BUS_ID."""
+    keyed = [(parse_bus_id(g["details"].get("pci_bus_id")), g) for g in gpus]
+    if any(k is None for k, _ in keyed):
+        return None
+    return next(i for i, (_, g) in enumerate(sorted(keyed, key=lambda kg: kg[0])) if g is target)
+
+
+class GpuFryer:
+    """Adapter for gpu-fryer 1.0.0 (Hugging Face, Apache-2.0), a CUDA matrix-multiply load that reports speed and
+    throttling. Linux only. Unlike gpu-burn it doesn't check its results for errors, so it's a load and throttling
+    test, not an error test. Output format read from real runs on Noodlecart, 2026-11-12."""
+
+    id = "gpu_fryer"
+    version = "1.0.0"
+    memory_test = False
+    HEALTHY = "All GPUs seem healthy"
+    # Real line: 'Detected GPU #0: "NVIDIA GeForce GTX 1660 Ti" (b48ac4e4-175e-374b-e1d2-37d284c4b48b)'
+    DETECTED = re.compile(r'^Detected GPU #(\d+): "(.+)" \(([0-9a-fA-F-]{36})\)')
+    SUMMARY = re.compile(r"^GPU #(\d+):\s+(\d+) Gflops/s")
+    THROTTLE = re.compile(r"Throttling HW: (true|false), Thermal SW: (true|false), Thermal HW: (true|false)")
+
+    def __init__(self, exe: str, seconds: int = 300):
+        self.exe, self.seconds = str(Path(exe).resolve()), seconds
+        self.env = {"CUDA_DEVICE_ORDER": "PCI_BUS_ID"}
+        self.expect_uuid = None
+
+    def prepare(self, gpus: list[dict], target: dict, runner) -> str | None:
+        if not sys.platform.startswith("linux"):
+            return "gpu-fryer only runs on Linux here, so it didn't run."
+        uuid = target["fields"].get("uuid", {}).get("value")
+        self.expect_uuid = uuid[4:].lower() if uuid and uuid.startswith("GPU-") else None
+        if len(gpus) > 1:
+            rank = _bus_rank(gpus, target)
+            if rank is None:
+                return "A card's PCI bus ID is unknown, so gpu-fryer can't be limited to the selected card, and it didn't run."
+            # gpu-fryer has no card option; this hides every other card from it.
+            self.env["CUDA_VISIBLE_DEVICES"] = str(rank)
+        return None
+
+    def verify(self, tool: dict) -> dict | None:
+        found = tool.get("detected") or []
+        if self.expect_uuid and [d["uuid"] for d in found] != [self.expect_uuid]:
+            return {"rule": "RUN-008", "state": "INCONCLUSIVE", "text": (
+                f"gpu-fryer reported testing {', '.join(d['name'] for d in found) or 'no card'}, not only the selected card. "
+                "The result doesn't apply to the selected card.")}
+        return None
+
+    def command(self) -> list[str]:
+        return [self.exe, str(self.seconds)]
+
+    def parse(self, text: str) -> dict:
+        lines = [line.rstrip() for line in text.splitlines()]
+        detected = [{"index": int(m.group(1)), "name": m.group(2), "uuid": m.group(3).lower()} for m in map(self.DETECTED.match, lines) if m]
+        summary = [m for m in map(self.SUMMARY.match, lines) if m]
+        throttle = [m for m in map(self.THROTTLE.search, lines) if m]
+        healthy = any(line.strip() == self.HEALTHY for line in lines)
+        attention = []
+        if throttle and throttle[-1].group(1) == "true":
+            attention.append("gpu-fryer saw hardware throttling (its 'Throttling HW' flag) during the run.")
+        if throttle and throttle[-1].group(3) == "true":
+            attention.append("gpu-fryer saw hardware thermal throttling during the run.")
+        # gpu-fryer's wording for an unhealthy card isn't known from a real run, so anything but its healthy line
+        # after the summary is reported for a person to read, never as a pass.
+        if summary and not healthy:
+            attention.append("gpu-fryer printed its summary but didn't report the card healthy.")
+        return {
+            "completed": healthy and bool(summary), "failure_lines": [], "attention_lines": attention,
+            "iterations": len(summary), "started": bool(detected), "detected": detected,
+            "gflops": int(summary[-1].group(2)) if summary else None, "memory_test": False,
+        }
+
+
+class DcgmDiag:
+    """Adapter for Nvidia DCGM's `dcgmi diag`, JSON output, read from real runs of DCGM 4.8.0 on Noodlecart.
+    On GeForce cards only level 1 is documented: a quick software and deployment check, not a stress test.
+    DCGM needs persistence mode on, so it's turned on for the run and restored afterwards."""
+
+    id = "dcgm_diag"
+    version = "dcgmi version reported in results"
+    memory_test = False
+    load_evidence = False  # a level 1 check puts no load on the card, so memory use can't confirm it
+    DISCOVERY_ID = re.compile(r"^\|\s*(\d+)\s*\|\s*Name: ")
+    DISCOVERY_BUS = re.compile(r"PCI Bus ID: ([0-9A-Fa-f]{8}:[0-9A-Fa-f]{2}:[0-9A-Fa-f]{2}\.[0-7])")
+
+    def __init__(self, exe: str = "dcgmi", level: int = 1):
+        self.exe, self.level = exe, level
+        self.entity, self.bus, self.expect_dev, self.restore_pm = None, None, None, False
+
+    @classmethod
+    def parse_discovery(cls, text: str) -> dict:
+        """PCI bus ID to DCGM GPU ID, from `dcgmi discovery -l`."""
+        out, current = {}, None
+        for line in text.splitlines():
+            m = cls.DISCOVERY_ID.match(line)
+            if m:
+                current = int(m.group(1))
+                continue
+            b = cls.DISCOVERY_BUS.search(line)
+            if b and current is not None:
+                out[parse_bus_id(b.group(1))] = current
+                current = None
+        return out
+
+    def prepare(self, gpus: list[dict], target: dict, runner) -> str | None:
+        if not sys.platform.startswith("linux"):
+            return "DCGM only runs on Linux, so it didn't run."
+        self.bus = target["details"].get("pci_bus_id")
+        ids = self.parse_discovery(runner.run([self.exe, "discovery", "-l"]).stdout)
+        self.entity = ids.get(parse_bus_id(self.bus))
+        if self.entity is None:
+            return f"DCGM didn't list a GPU at {self.bus}, so it didn't run. Is the nvidia-dcgm service running?"
+        dev = target["fields"]["pci_device_id"]["value"]
+        self.expect_dev = f"{int(dev, 16) >> 16:04x}" if dev else None
+        r = runner.run(["nvidia-smi", f"--id={self.bus}", "--query-gpu=persistence_mode", "--format=csv,noheader"])
+        if r.stdout.strip() == "Disabled":
+            on = runner.run(["sudo", "-n", "nvidia-smi", "-i", self.bus, "-pm", "1"])
+            if on.returncode != 0:
+                return "DCGM needs persistence mode, which couldn't be turned on (it needs sudo without a prompt), so it didn't run."
+            self.restore_pm = True
+        return None
+
+    def cleanup(self, runner) -> dict | None:
+        if not self.restore_pm:
+            return None
+        off = runner.run(["sudo", "-n", "nvidia-smi", "-i", self.bus, "-pm", "0"])
+        self.restore_pm = False
+        return {"persistence_mode_restored": off.returncode == 0}
+
+    def verify(self, tool: dict) -> dict | None:
+        seen = tool.get("entities") or []
+        if [(x.get("entity_id"), x.get("device_id")) for x in seen] != [(self.entity, self.expect_dev)]:
+            return {"rule": "RUN-008", "state": "INCONCLUSIVE", "text": (
+                f"DCGM reported testing {seen or 'no card'}, not only GPU {self.entity} with device ID {self.expect_dev}.")}
+        return None
+
+    def command(self) -> list[str]:
+        return [self.exe, "diag", "-r", str(self.level), "-i", str(self.entity), "-j"]
+
+    def parse(self, text: str) -> dict:
+        start = text.find("{")
+        try:
+            data = json.loads(text[start:]) if start >= 0 else {}
+        except json.JSONDecodeError:
+            data = {}
+        diag = data.get("DCGM Diagnostic", {})
+        tests = [(c.get("category"), t.get("name"), t.get("test_summary", {})) for c in diag.get("test_categories", []) for t in c.get("tests", [])]
+        entities = [{"entity_id": e.get("entity_id"), "device_id": e.get("device_id")} for g in data.get("entity_groups", [])
+                    if g.get("entity_group") == "GPU" for e in g.get("entities", [])]
+
+        def detail(summary):
+            w = "; ".join(x.get("warning", "") for x in summary.get("warnings", []))
+            return f": {w}" if w else ""
+
+        attention = [f"DCGM {cat}/{name} reported {s.get('status')}{detail(s)}" for cat, name, s in tests if s.get("status") not in ("Pass", "Skip")]
+        skipped = [f"DCGM {cat}/{name} was skipped, as Nvidia documents for this class of card." for cat, name, s in tests if s.get("status") == "Skip"]
+        error = diag.get("runtime_error")
+        return {
+            "completed": bool(tests) and not error, "failure_lines": [], "attention_lines": attention, "skipped_lines": skipped,
+            "runtime_error": error.strip()[:400] if error else None, "iterations": len(tests), "started": bool(data),
+            "entities": entities, "dcgm_version": data.get("metadata", {}).get("version") or diag.get("version"),
+            "tests": [{"category": c, "name": n, "status": s.get("status")} for c, n, s in tests], "memory_test": False,
+        }
+
+
+def _first_json_object(text: str) -> dict | None:
+    """The first complete {...} object in text that also holds other output."""
+    start = text.find("{")
+    while start >= 0:
+        depth, in_str, esc = 0, False, False
+        for i in range(start, len(text)):
+            ch = text[i]
+            if in_str:
+                esc, in_str = (False, in_str) if esc else (ch == "\\", ch != '"')
+                continue
+            if ch == '"':
+                in_str = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    try:
+                        return json.loads(text[start:i + 1])
+                    except json.JSONDecodeError:
+                        break
+        start = text.find("{", start + 1)
+    return None
+
+
+ANSI = re.compile(r"\x1b\[[0-9;]*m")
+
+
+class LocalScore:
+    """Adapter for LocalScore 0.9.3 (llamafile, MIT), an LLM benchmark with a public results database.
+
+    LocalScore asks before uploading results to localscore.ai. GPUDoc always passes -n (never upload) and never -y.
+    On Linux it also runs the tool in a network namespace with no network at all, so nothing can leave even if the
+    flag were ignored; that needs sudo without a prompt. Output format read from real runs on Noodlecart, 2026-11-12."""
+
+    id = "localscore"
+    version = "0.9.3"
+    process_names = ["localscore-0.9"]
+    memory_test = False
+    NOT_SENT = "Results Not Submitted."
+    LISTED = re.compile(r"^(\d+): (.+) - [\d.]+ GiB\s*$")
+    SUMMARY = {"generation_tokens_per_second": re.compile(r"^Token Generation:\s+([\d.]+) tok/s"),
+               "prompt_tokens_per_second": re.compile(r"^Prompt Processing:\s+([\d.]+) tok/s"),
+               "time_to_first_token_ms": re.compile(r"^Time to First Token:\s+([\d.]+) ms")}
+
+    def __init__(self, exe: str, model: str, block_network: bool | None = None):
+        self.exe, self.model = str(Path(exe).resolve()), str(Path(model).resolve())
+        self.block_network = sys.platform.startswith("linux") if block_network is None else block_network
+        self.index, self.expect_name = None, None
+        self.env = {"CUDA_DEVICE_ORDER": "PCI_BUS_ID"}
+
+    def _wrap(self, args: list[str]) -> list[str]:
+        cmd = [self.exe] + args
+        if not self.block_network:
+            return cmd
+        import getpass
+        # A new network namespace has only a loopback device, which is down, so no connection can be made.
+        return ["sudo", "-n", "unshare", "-n", "sudo", "-n", "-u", getpass.getuser(), "env",
+                *(f"{k}={v}" for k, v in self.env.items())] + cmd
+
+    @classmethod
+    def parse_list(cls, text: str) -> list[tuple[int, str]]:
+        return [(int(m.group(1)), m.group(2).strip()) for m in map(cls.LISTED.match, ANSI.sub("", text).splitlines()) if m]
+
+    def prepare(self, gpus: list[dict], target: dict, runner) -> str | None:
+        self.expect_name = target["fields"]["name"]["value"]
+        r = runner.run(self._wrap(["--list-gpus"]))
+        if self.block_network and r.returncode != 0 and not r.stdout:
+            return "LocalScore couldn't be started with its network blocked (this needs sudo without a prompt), so it didn't run."
+        match = [i for i, n in self.parse_list(r.stdout + "\n" + r.stderr) if n == self.expect_name]
+        if len(match) != 1:
+            return (f"LocalScore lists {len(match)} GPUs named '{self.expect_name}', so the selected card can't be picked for certain, "
+                    "and it didn't run.")
+        self.index = match[0]
+        return None
+
+    def verify(self, tool: dict) -> dict | None:
+        if self.expect_name and tool.get("accelerator") != self.expect_name:
+            return {"rule": "RUN-008", "state": "INCONCLUSIVE", "text": f"LocalScore reported testing '{tool.get('accelerator')}', not '{self.expect_name}'."}
+        if self.index is not None and set(tool.get("main_gpus") or []) - {self.index}:
+            return {"rule": "RUN-008", "state": "INCONCLUSIVE", "text": f"LocalScore reported GPU index {tool.get('main_gpus')}, not {self.index}."}
+        return None
+
+    def command(self) -> list[str]:
+        idx = ["-i", str(self.index)] if self.index is not None else []
+        return self._wrap(["-m", self.model, "-g", "nvidia", *idx, "-n", "-o", "json"])
+
+    def parse(self, text: str) -> dict:
+        data = _first_json_object(text) or {}
+        results = data.get("results") or []
+        lines = [line.strip() for line in ANSI.sub("", text).splitlines()]
+        out = {"completed": bool(results) and any(line == self.NOT_SENT for line in lines), "failure_lines": [], "attention_lines": [],
+               "iterations": len(results), "started": bool(data), "accelerator": (data.get("accelerator_info") or {}).get("name"),
+               "main_gpus": sorted({r.get("main_gpu") for r in results if r.get("main_gpu") is not None}),
+               "localscore_tests": [{k: r.get(k) for k in ("name", "prompt_tps", "gen_tps", "ttft_ms")} for r in results],
+               "llamafile_commit": (data.get("runtime_info") or {}).get("commit"), "memory_test": False}
+        for key, rx in self.SUMMARY.items():
+            m = next((m for m in map(rx.match, lines) if m), None)
+            out[key] = float(m.group(1)) if m else None
+        if results and not any(line == self.NOT_SENT for line in lines):
+            out["attention_lines"].append("LocalScore didn't print 'Results Not Submitted.', so it can't be confirmed that nothing was uploaded.")
+        if any(line.startswith("Results Submitted") or "submitted successfully" in line.lower() for line in lines):
+            out["attention_lines"].append("LocalScore says results were submitted to the public database.")
+        return out
+
+
+class Wattever:
+    """Adapter for Wattever 2.6.1 (MIT), an LLM speed and power benchmark that measures a running model server.
+    GPUDoc's driver (wattever_run.py) starts llama.cpp's llama-server on the selected card, drives Wattever through
+    its local API, and shuts both down. Results come from Wattever's own JSON file, read from a real run on Noodlecart."""
+
+    id = "wattever"
+    version = "2.6.1"
+    process_names = ["llama-server", "wattever.server", "wattever_run.py"]
+    memory_test = False
+    PREFIX = "GPUDOC-WATTEVER "
+
+    def __init__(self, wattever_dir: str, llama_server: str, model: str, sizes: str = "512,4000", repeats: int = 2):
+        self.dir, self.server, self.model = str(Path(wattever_dir).resolve()), str(Path(llama_server).resolve()), str(Path(model).resolve())
+        self.sizes, self.repeats, self.device, self.gpu_index = sizes, repeats, None, 0
+        self.exe = sys.executable
+
+    def prepare(self, gpus: list[dict], target: dict, runner) -> str | None:
+        self.gpu_index = target["index"]
+        if len(gpus) == 1:
+            return None
+        r = runner.run([self.server, "--list-devices"])
+        name = target["fields"]["name"]["value"]
+        match = [d for d, n in LlamaBench.parse_devices(r.stdout + "\n" + r.stderr) if n == name]
+        if len(match) != 1:
+            return f"llama-server lists {len(match)} devices named '{name}', so the selected card can't be picked for certain, and it didn't run."
+        self.device = match[0]
+        return None
+
+    def command(self) -> list[str]:
+        cmd = [self.exe, "-I", str(Path(__file__).with_name("wattever_run.py")), "--wattever", self.dir, "--llama-server", self.server,
+               "--model", self.model, "--gpu-index", str(self.gpu_index), "--sizes", self.sizes, "--repeats", str(self.repeats)]
+        return cmd + (["--device", self.device] if self.device else [])
+
+    @staticmethod
+    def summarise(run: dict) -> dict:
+        rows = run.get("results") or []
+        ok = [r for r in rows if r.get("status") == "ok"]
+
+        def mean(xs):
+            xs = [x for x in xs if isinstance(x, (int, float))]
+            return round(sum(xs) / len(xs), 2) if xs else None
+
+        sizes = sorted({r.get("target_tokens") for r in ok if r.get("target_tokens")})
+        per_size = [{"prompt_tokens": size, "prefill_tps": mean(r.get("prefill_tps") for r in ok if r.get("target_tokens") == size),
+                     "decode_tps": mean(r.get("decode_tps") for r in ok if r.get("target_tokens") == size),
+                     "ttft_s": mean(r.get("ttft_s") for r in ok if r.get("target_tokens") == size),
+                     "decode_gpu_w": mean((r.get("power") or {}).get("decode_gpu_w") for r in ok if r.get("target_tokens") == size),
+                     "j_per_token_decode": mean((r.get("power") or {}).get("j_per_token_decode") for r in ok if r.get("target_tokens") == size)}
+                    for size in sizes]
+        first = per_size[0] if per_size else {}
+        return {"results": len(rows), "ok": len(ok), "wattever_status": run.get("status"), "wattever_sizes": per_size,
+                "generation_tokens_per_second": first.get("decode_tps"), "prompt_tokens_per_second": first.get("prefill_tps"),
+                "joules_per_generated_token": first.get("j_per_token_decode")}
+
+    def parse(self, text: str) -> dict:
+        line = next((ln for ln in reversed(text.splitlines()) if ln.startswith(self.PREFIX)), None)
+        out = {"completed": False, "failure_lines": [], "attention_lines": [], "iterations": 0, "memory_test": False,
+               "started": "llama-server ready" in text}
+        if line is None:
+            return out
+        try:
+            info = json.loads(line[len(self.PREFIX):])
+        except json.JSONDecodeError:
+            return out
+        out["driver_status"] = info.get("status")
+        if info.get("error"):
+            out["runtime_error"] = info["error"]
+        path = info.get("file")
+        try:
+            run = json.loads(Path(path).read_text(encoding="utf-8")) if path else {}
+        except (OSError, json.JSONDecodeError):
+            run = {}
+        out.update(self.summarise(run), wattever_file=path, iterations=len(run.get("results") or []))
+        out["completed"] = info.get("status") == "finished" and out["results"] > 0 and out["ok"] == out["results"]
+        if out["results"] and out["ok"] < out["results"]:
+            out["attention_lines"].append(f"Wattever reported {out['results'] - out['ok']} of {out['results']} tests as not OK.")
+        return out
 
 
 # ---------- GPU selection ----------
@@ -358,13 +707,26 @@ def stop_and_confirm(proc: subprocess.Popen, timeout: float = 30.0) -> dict:
         return {"stopped": False, "method": "kill_timed_out", "exit_code": None}
 
 
-def still_running(pattern: str, runner) -> list[str]:
-    """Lists matching processes, because a dead parent doesn't prove its workers stopped."""
+def still_running(pattern: str | list[str], runner) -> list[str]:
+    """Lists matching processes, because a dead parent doesn't prove its workers stopped.
+    On Linux it matches full command lines, since some tools run under a loader or an interpreter whose short
+    process name differs from the tool's, and it skips GPUDoc's own process, whose command line names the tools."""
+    patterns = [pattern] if isinstance(pattern, str) else list(pattern)
     if os.name == "nt":
-        r = runner.run(["tasklist", "/FO", "CSV", "/NH"])
+        lines = runner.run(["tasklist", "/FO", "CSV", "/NH"]).stdout.splitlines()
     else:
-        r = runner.run(["ps", "-eo", "comm"])
-    return [line for line in r.stdout.splitlines() if pattern.lower() in line.lower()]
+        procs = {}
+        for line in runner.run(["ps", "-eo", "pid=,ppid=,args="]).stdout.splitlines():
+            parts = line.split(None, 2)
+            if len(parts) >= 2 and parts[0].isdigit() and parts[1].isdigit():
+                procs[int(parts[0])] = (int(parts[1]), parts[2] if len(parts) > 2 else "")
+        # GPUDoc and the shells that started it name the tools in their own command lines, so skip that chain.
+        mine, pid = set(), os.getpid()
+        while pid in procs and pid not in mine:
+            mine.add(pid)
+            pid = procs[pid][0]
+        lines = [args for pid, (_, args) in procs.items() if pid not in mine]
+    return [line for line in lines if any(p.lower() in line.lower() for p in patterns)]
 
 
 # ---------- telemetry ----------
@@ -462,6 +824,12 @@ def evaluate(e: Evidence) -> dict:
         if watts:
             summary["tokens_per_gpu_watt_hour"] = round(tps * 3600 / (sum(watts) / len(watts)))
 
+    for line in e.tool.get("attention_lines", []):
+        add("DCG-001" if line.startswith("DCGM ") else "CMP-002", "ATTENTION", line)
+    for line in e.tool.get("skipped_lines", []):
+        add("DCG-002", "NOTE", line)
+    if e.tool.get("runtime_error"):
+        add("RUN-016", "INCONCLUSIVE", f"The tool reported an error and couldn't complete: {e.tool['runtime_error']}")
     if e.tool.get("failure_lines"):
         rule = "MEM-001" if e.tool.get("memory_test", True) else "CMP-001"
         add(rule, "FAIL", "The tool's output contains failure text: " + e.tool["failure_lines"][0])
@@ -514,7 +882,7 @@ def evaluate(e: Evidence) -> dict:
 
     states = {x["state"] for x in f}
     overall = next((s for s in ("FAIL", "INCONCLUSIVE", "ATTENTION") if s in states), "PASS")
-    return {"state": overall, "findings": f, "summary": summary, "rules_version": "draft-6"}
+    return {"state": overall, "findings": f, "summary": summary, "rules_version": "draft-7"}
 
 
 # ---------- orchestration ----------
@@ -688,7 +1056,7 @@ def run_adapter(adapter, out_dir: Path, gpu_select: str | None = None, max_secon
     offsets = clocks.read(bus_now) if bus_now and runner.mode == "local" else {"error": "not read"}
     # A tool that doesn't name its card by bus is checked by watching memory use on every card.
     usage = None
-    if count > 1 and not getattr(adapter, "reports_device", False):
+    if count > 1 and not getattr(adapter, "reports_device", False) and getattr(adapter, "load_evidence", True):
         base = memory_by_bus(runner)
         usage = {"baseline": base, "peak": dict(base or {}), "failed": base is None}
     # Ctrl+C, a terminal closing, or a kill request stops the tool and still writes an INCONCLUSIVE result.
@@ -702,7 +1070,7 @@ def run_adapter(adapter, out_dir: Path, gpu_select: str | None = None, max_secon
                 reason, interrupted_by = "interrupted", str(e)
             _set_handlers(signal.SIG_IGN)  # further signals wait until the tool is stopped and the result is written
             stop = stop_and_confirm(proc)
-        leftovers = still_running(Path(adapter.exe).stem, runner)
+        leftovers = still_running(getattr(adapter, "process_names", None) or Path(adapter.exe).stem, runner)
         if leftovers:
             stop["stopped"] = False
             stop["method"] = "processes_left_running"
@@ -750,6 +1118,8 @@ def run_adapter(adapter, out_dir: Path, gpu_select: str | None = None, max_secon
         (out_dir / "test.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
         return result
     finally:
+        if hasattr(adapter, "cleanup"):
+            adapter.cleanup(runner)
         for sig, handler in old_handlers.items():
             signal.signal(sig, handler)
 

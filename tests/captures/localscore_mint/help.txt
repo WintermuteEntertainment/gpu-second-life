@@ -1,0 +1,17 @@
+usage: /home/USER/gpudoc/tools/localscore-0.9.3/localscore-0.9.3 [options]
+
+options:
+  -h, --help
+  -m, --model <filename>
+  -c, --cpu                                  disable GPU acceleration (alias for --gpu=disabled)
+  -g, --gpu <auto|amd|apple|nvidia|disabled> (default: "auto")
+  -i, --gpu-index <i>                        select GPU by index (default: -1)
+  --list-gpus                                list available GPUs and exit
+  -o, --output <csv|json|console>            (default: console)
+  -v, --verbose                              verbose output (default: off)
+  --plaintext                                plaintext output (default: off)
+  -y, --send-results                         send results without confirmation
+  -n, --no-send-results                      disable sending results
+  -e, --extended                             run 4 reps (shortcut for --reps=4)
+  --long                                     run 16 reps (shortcut for --reps=16)
+  --reps <N>                                 set custom number of repetitions

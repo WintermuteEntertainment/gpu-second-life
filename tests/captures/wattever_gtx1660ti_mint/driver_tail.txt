@@ -1,0 +1,2 @@
+llama-server ready, model: qwen2.5-7b-instruct-q4_k_m-00001-of-00002.gguf
+GPUDOC-WATTEVER {"status": "finished", "run_id": "20261112-014236_gtx-1660-ti_6b1b46bd26", "file": "RUN_FILE"}
