@@ -723,6 +723,18 @@ class RealLocalScore(unittest.TestCase):
         self.assertIsNone(a.verify(self.tool(1)))
         self.assertEqual(a.verify(self.tool(0))["rule"], "RUN-008")
 
+    def test_gtx16_card_gets_a_note(self):
+        report, _ = inspect(CaptureRunner(CAPTURES / "gtx1660ti_gtx1060_driver58017804_mint"))
+        listing = Replay((self.FOLDER / "list_gpus.txt").read_text(encoding="utf-8"))
+        ti, gtx1060 = (LocalScore("localscore", "m.gguf", block_network=False) for _ in range(2))
+        ti.prepare(report["gpus"], report["gpus"][0], listing)
+        gtx1060.prepare(report["gpus"], report["gpus"][1], listing)
+        text = (self.FOLDER / "run_gpu0.stdout").read_text(encoding="utf-8")
+        r = evaluate(ev(ti.parse(text), [{"temperature_gpu": 60, "memory_used": 1500}]))
+        self.assertEqual(r["state"], "PASS")
+        self.assertIn("LLM-001", [f["rule"] for f in r["findings"]])
+        self.assertNotIn("note_lines", gtx1060.parse((self.FOLDER / "run_gpu1.stdout").read_text(encoding="utf-8")))
+
     def test_linux_runs_have_no_network(self):
         a = LocalScore("localscore", "m.gguf", block_network=True)
         self.assertEqual(a.command()[:4], ["sudo", "-n", "unshare", "-n"])

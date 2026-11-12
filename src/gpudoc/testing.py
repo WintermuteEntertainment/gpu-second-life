@@ -442,6 +442,7 @@ class LocalScore:
     def prepare(self, gpus: list[dict], target: dict, runner) -> str | None:
         self.expect_name = target["fields"]["name"]["value"]
         r = runner.run(self._wrap(["--list-gpus"]))
+        self.gtx16 = "GTX 16" in self.expect_name
         if self.block_network and r.returncode != 0 and not r.stdout:
             return "LocalScore couldn't be started with its network blocked (this needs sudo without a prompt), so it didn't run."
         match = [i for i, n in self.parse_list(r.stdout + "\n" + r.stderr) if n == self.expect_name]
@@ -476,6 +477,13 @@ class LocalScore:
             out[key] = float(m.group(1)) if m else None
         if results and not any(line == self.NOT_SENT for line in lines):
             out["attention_lines"].append("LocalScore didn't print 'Results Not Submitted.', so it can't be confirmed that nothing was uploaded.")
+        if getattr(self, "gtx16", False):
+            # Found on Noodlecart, 2026-11-12: llama.cpp's CUDA code treats GTX 16 cards (compute 7.5, no tensor cores) like
+            # RTX 20 cards. A standard CUDA build processed prompts on a GTX 1660 Ti at a third of the speed of a build forcing
+            # the Pascal code paths, at 72 W instead of 119 W. LocalScore's bundled CUDA build showed the same low power.
+            out["note_lines"] = ["This is a GTX 16 card, which has no tensor cores. LocalScore's bundled CUDA build runs it on code "
+                                 "meant for tensor-core cards, so prompt speed and its score understate the card. Compare it only "
+                                 "with other GTX 16 runs of the same LocalScore build."]
         if any(line.startswith("Results Submitted") or "submitted successfully" in line.lower() for line in lines):
             out["attention_lines"].append("LocalScore says results were submitted to the public database.")
         return out
@@ -828,6 +836,8 @@ def evaluate(e: Evidence) -> dict:
         add("DCG-001" if line.startswith("DCGM ") else "CMP-002", "ATTENTION", line)
     for line in e.tool.get("skipped_lines", []):
         add("DCG-002", "NOTE", line)
+    for line in e.tool.get("note_lines", []):
+        add("LLM-001", "NOTE", line)
     if e.tool.get("runtime_error"):
         add("RUN-016", "INCONCLUSIVE", f"The tool reported an error and couldn't complete: {e.tool['runtime_error']}")
     if e.tool.get("failure_lines"):
@@ -882,7 +892,7 @@ def evaluate(e: Evidence) -> dict:
 
     states = {x["state"] for x in f}
     overall = next((s for s in ("FAIL", "INCONCLUSIVE", "ATTENTION") if s in states), "PASS")
-    return {"state": overall, "findings": f, "summary": summary, "rules_version": "draft-7"}
+    return {"state": overall, "findings": f, "summary": summary, "rules_version": "draft-8"}
 
 
 # ---------- orchestration ----------
