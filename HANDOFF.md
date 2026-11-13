@@ -99,7 +99,7 @@ All four installed with Tim's go-ahead ("Build the DCGM anyway ... add gpu-fryer
 
 - **Tried on Mint through an SSH tunnel from PT, 2026-11-13:** the page listed both cards and all seven tools. A DCGM plus llama-bench run on the Ti from the page passed (41.9 generation tokens/s). A gpu-burn run stopped from the page after about 45 s was recorded as interrupted (RUN-012), with the tool stopped and no leftovers.
 - **Two bugs found and fixed on the way:** (1) the first run from the page was killed at once, because Linux ties the "die with parent" signal to the thread that starts a process, and each web request's thread ends after answering; tests now start from a thread that lives as long as the test, with a real-process test. (2) Stopping gpu-burn was recorded with one leftover (RUN-001) that was gone seconds later; the leftover check now ignores exited processes not yet cleared away, and looks a second time after 3 s.
-- 117 tests pass on PT and Mint. Not checked on Windows yet.
+- 116 tests pass on PT (2 Linux-only ones skipped there) and on Mint. Not checked on Windows yet.
 - To view it from PT: `ssh -N -L 8740:127.0.0.1:8740 tim@192.168.2.51`, then open `http://127.0.0.1:8740/`. On Mint it was started with `nohup setsid env PYTHONPATH=src python3 -u -m gpudoc.cli serve --tools gpudoc-tools.json --out gpudoc-runs` and is still running.
 
 ## Phase 2: `gpudoc test`
