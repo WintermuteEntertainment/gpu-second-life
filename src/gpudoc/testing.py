@@ -445,7 +445,13 @@ class LocalScore:
         self.gtx16 = "GTX 16" in self.expect_name
         if self.block_network and r.returncode != 0 and not r.stdout:
             return "LocalScore couldn't be started with its network blocked (this needs sudo without a prompt), so it didn't run."
-        match = [i for i, n in self.parse_list(r.stdout + "\n" + r.stderr) if n == self.expect_name]
+        listing = r.stdout + "\n" + r.stderr
+        match = [i for i, n in self.parse_list(listing) if n == self.expect_name]
+        if not match and "No Accelerator support available" in listing:
+            # Seen on Windows, 2026-11-13: LocalScore's Windows build has no ready-made CUDA library and compiles one at
+            # first run, which needs Nvidia's CUDA toolkit (nvcc) and a C++ compiler on the machine.
+            return ("LocalScore found no GPU support on this machine, so it didn't run. On Windows it needs Nvidia's CUDA "
+                    "toolkit and a C++ compiler installed to build its GPU library.")
         if len(match) != 1:
             return (f"LocalScore lists {len(match)} GPUs named '{self.expect_name}', so the selected card can't be picked for certain, "
                     "and it didn't run.")
@@ -496,7 +502,7 @@ class Wattever:
 
     id = "wattever"
     version = "2.6.1"
-    process_names = ["llama-server", "wattever.server", "wattever_run.py"]
+    process_names = ["llama-server", "wattever.server", "wattever_run.py"] if os.name != "nt" else ["llama-server"]
     memory_test = False
     PREFIX = "GPUDOC-WATTEVER "
 

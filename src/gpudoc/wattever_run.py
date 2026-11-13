@@ -100,7 +100,11 @@ def main() -> int:
         print("llama-server ready, model:", model_id, flush=True)
 
         env = dict(os.environ, GPU_BENCH_NO_BROWSER="1", GPU_BENCH_PORT=str(a.wattever_port))
-        wattever = subprocess.Popen([sys.executable, "-m", "wattever.server"], cwd=a.wattever, env=env, stdout=sys.stdout,
+        # Windows' embeddable Python ignores the current folder and PYTHONPATH when importing, so the package folder is
+        # put on the path explicitly. This works the same with a normal Python.
+        start = (f"import sys, runpy; sys.path.insert(0, {a.wattever!r}); "
+                 "runpy.run_module('wattever.server', run_name='__main__', alter_sys=True)")
+        wattever = subprocess.Popen([sys.executable, "-c", start], cwd=a.wattever, env=env, stdout=sys.stdout,
                                     stderr=sys.stdout, stdin=subprocess.DEVNULL)
         base = f"http://127.0.0.1:{a.wattever_port}"
         version = wait_for(f"{base}/api/version", 60, wattever, "Wattever")
