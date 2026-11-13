@@ -501,7 +501,7 @@ main{max-width:420px;margin:12vh auto;padding:0 16px}.card{background:var(--card
 input{font:inherit;width:100%;padding:8px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--text);margin:8px 0 12px}
 button{font:inherit;padding:7px 16px;border-radius:7px;border:1px solid var(--accent);background:var(--accent);color:#fff;cursor:pointer}
 .muted{color:var(--muted);font-size:.85rem}.err{color:var(--bad)}</style></head><body><main><div class="card">
-<h1 style="font-size:1.3rem;margin:0 0 6px">GPUDoc</h1><p class="muted">Enter the access code shown on the GPUDoc machine's console when the page was started in LAN mode.</p>
+<h1 style="font-size:1.3rem;margin:0 0 6px">GPUDoc</h1><p class="muted">This GPUDoc page is in LAN mode, so it needs an access code. When the page was started with <code>gpudoc serve --lan</code>, GPUDoc printed the code once, in the window or terminal that started it, on the machine being tested. Only a scrambled form is stored, so it can't be shown again: to get a new code, restart the page there with <code>gpudoc serve --lan --new-access-code</code>. Opening the page through an SSH tunnel in local mode needs no code.</p>
 <form id="f"><input id="code" type="password" autocomplete="current-password" aria-label="Access code" autofocus><button>Log in</button> <span id="msg"></span></form>
 <p class="muted">LAN mode is plain HTTP, so the code crosses your network unencrypted.</p></div></main><script>
 document.getElementById("f").onsubmit=async e=>{e.preventDefault();const r=await fetch("/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({code:document.getElementById("code").value})});
