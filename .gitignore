@@ -8,3 +8,7 @@ tests/captures/raw_private/
 *.log
 reports/
 backup_logs/
+
+# Working notes with home network and account details. Kept local only (Tim, 2026-11-13).
+/HANDOFF.md
+/NOTES.md
