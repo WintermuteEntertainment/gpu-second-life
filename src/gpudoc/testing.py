@@ -159,8 +159,10 @@ class GpuBurn:
     PROGRESS = re.compile(r"([\d.]+)%\s+proc'd: (-?\d+) \((\d+) Gflop/s\)\s+errors: (-?\d+)")
     RESULT = re.compile(r"^\s*GPU (\d+): (\w+)\s*$")
 
-    def __init__(self, exe: str, seconds: int = 300, device: int | None = None):
+    def __init__(self, exe: str, seconds: int = 300, device: int | None = None, memory: str | None = None):
         self.exe, self.seconds, self.device = str(Path(exe).resolve()), seconds, device
+        # gpu-burn's -m: a percentage of the free memory ("98%") or megabytes. Its own default is 90% of free memory.
+        self.memory = memory
         # gpu-burn loads compare.fatbin from the current folder, so it runs from its own.
         self.cwd = Path(self.exe).parent
 
@@ -200,7 +202,8 @@ class GpuBurn:
         return None
 
     def command(self) -> list[str]:
-        return [self.exe] + (["-i", str(self.device)] if self.device is not None else []) + [str(self.seconds)]
+        return ([self.exe] + (["-i", str(self.device)] if self.device is not None else []) +
+                (["-m", self.memory] if self.memory else []) + [str(self.seconds)])
 
     def parse(self, text: str) -> dict:
         # Progress lines overwrite each other with carriage returns.
@@ -582,6 +585,18 @@ class Wattever:
         if out["results"] and out["ok"] < out["results"]:
             out["attention_lines"].append(f"Wattever reported {out['results'] - out['ok']} of {out['results']} tests as not OK.")
         return out
+
+
+def burn_memory_error(value: str | None) -> str | None:
+    """None if value is a usable gpu-burn memory setting (10% to 100%, or at least 64 MB), else why it isn't."""
+    if value is None:
+        return None
+    v = value.strip()
+    if v.endswith("%") and v[:-1].isdigit():
+        return None if 10 <= int(v[:-1]) <= 100 else "gpu-burn memory must be between 10% and 100% of the free memory."
+    if v.isdigit():
+        return None if int(v) >= 64 else "gpu-burn memory in megabytes must be at least 64."
+    return "gpu-burn memory must be a percentage such as 98% or a number of megabytes."
 
 
 # ---------- GPU selection ----------
@@ -1078,6 +1093,7 @@ def run_adapter(adapter, out_dir: Path, gpu_select: str | None = None, max_secon
     out_dir.mkdir(parents=True, exist_ok=False)
     stdout_path, stderr_path, tele_path = out_dir / "tool_stdout.txt", out_dir / "tool_stderr.txt", out_dir / "telemetry.jsonl"
     start = dt.datetime.now()
+    start_utc = dt.datetime.now(dt.timezone.utc)
     samples, interrupted_by = [], None
     bus_now = g["details"].get("pci_bus_id")
     offsets = clocks.read(bus_now) if bus_now and runner.mode == "local" else {"error": "not read"}
@@ -1147,7 +1163,8 @@ def run_adapter(adapter, out_dir: Path, gpu_select: str | None = None, max_secon
                       gpu_index=g["index"], gpu_bus_id=bus_id, tool_command=adapter.command(), driver_log=log,
                       clock_offsets=offsets, stock_settings=None if offsets.get("error") else not clocks.non_stock(offsets),
                       memory_rise_mib={f"{b[1]:02x}:{b[2]:02x}.{b[3]}": r for b, r in load_rise(usage).items()} if usage else None,
-                      started_at=start.isoformat(timespec="seconds"), before=before, after=after)
+                      started_at=start.isoformat(timespec="seconds"), started_at_utc=start_utc.isoformat(timespec="seconds"),
+                      before=before, after=after)
         (out_dir / "test.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
         return result
     finally:

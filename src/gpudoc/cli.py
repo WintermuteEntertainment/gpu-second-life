@@ -63,7 +63,11 @@ def cmd_test(a) -> int:
         if a.burn_seconds + 60 > a.max_seconds:
             print(f"Nothing was run. --burn-seconds {a.burn_seconds} needs --max-seconds of at least {a.burn_seconds + 60}.")
             return 3
-        adapters.append(GpuBurn(a.gpu_burn, a.burn_seconds))
+        from .testing import burn_memory_error
+        if burn_memory_error(a.burn_memory):
+            print(f"Nothing was run. {burn_memory_error(a.burn_memory)}")
+            return 3
+        adapters.append(GpuBurn(a.gpu_burn, a.burn_seconds, memory=a.burn_memory))
     if a.dcgm:
         adapters.insert(0, DcgmDiag(a.dcgm, a.dcgm_level))
     if a.gpu_fryer:
@@ -196,7 +200,8 @@ def cmd_tune(a) -> int:
         print("Cancelled. Nothing was run.")
         return 3
     d = Path(a.out) / ("tune-" + dt.datetime.now().strftime("%Y%m%d-%H%M%S"))
-    result = run_tune(tool_id, path, g["details"].get("pci_bus_id") or str(g["index"]), a.step, a.max_offset, a.seconds, a.confirm_seconds, d)
+    result = run_tune(tool_id, path, g["details"].get("pci_bus_id") or str(g["index"]), a.step, a.max_offset, a.seconds, a.confirm_seconds, d,
+                      burn_memory=a.burn_memory)
     print(to_text(result))
     if result.get("baseline"):
         print(f"Saved to {d}")
@@ -209,7 +214,10 @@ def cmd_serve(a) -> int:
     if a.tools and not tools.exists():
         print(f"Tools file not found: {tools}")
         return 3
-    return serve(a.port, tools, Path(a.out))
+    if a.new_access_code and not a.lan:
+        print("--new-access-code only applies with --lan.")
+        return 3
+    return serve(a.port, tools, Path(a.out), lan=a.lan, host=a.host, new_code=a.new_access_code)
 
 
 def main(argv=None) -> int:
@@ -226,6 +234,8 @@ def main(argv=None) -> int:
     t.add_argument("--tool-path", help="Path to memtest_vulkan, for the memory test")
     t.add_argument("--gpu-burn", help="Path to gpu_burn (gpu_burn.exe on Windows), to add a compute stress test that checks its results")
     t.add_argument("--burn-seconds", type=int, default=300, help="How long gpu-burn runs. Default 300")
+    t.add_argument("--burn-memory", help="How much memory gpu-burn uses: a percentage of the free memory such as 98%%, or "
+                                         "megabytes. Default: gpu-burn's own 90%% of free memory")
     t.add_argument("--gpu-fryer", help="Path to gpu-fryer, to add a load and throttling test (Linux only)")
     t.add_argument("--fryer-seconds", type=int, default=300, help="How long gpu-fryer runs. Default 300")
     t.add_argument("--dcgm", nargs="?", const="dcgmi", help="Run Nvidia DCGM diagnostics first (Linux; optional path to dcgmi)")
@@ -255,6 +265,7 @@ def main(argv=None) -> int:
     u.add_argument("--gpu", help="Card, by nvidia-smi index or PCI bus ID. Required when more than one GPU is installed")
     u.add_argument("--gpu-burn", help="Path to gpu_burn (gpu_burn.exe on Windows), the workload that proves each step")
     u.add_argument("--tool-path", help="Path to memtest_vulkan, as the workload instead of gpu-burn")
+    u.add_argument("--burn-memory", help="gpu-burn memory, as in gpudoc test --burn-memory")
     u.add_argument("--step", type=int, default=25, help="MHz added per step. Default 25")
     u.add_argument("--max-offset", type=int, default=150, help="Highest offset to try, in MHz. Default 150")
     u.add_argument("--seconds", type=int, default=60, help="Seconds per step. Default 60")
@@ -268,6 +279,9 @@ def main(argv=None) -> int:
     w.add_argument("--tools", help="JSON file of tool paths, keyed like the test options (tool_path, gpu_burn, model, ...). "
                                    "Default: gpudoc-tools.json in the current folder, if present")
     w.add_argument("--out", default="gpudoc-runs", help="Results folder, shared with gpudoc test")
+    w.add_argument("--lan", action="store_true", help="Listen on the network and require a login with an access code. Plain HTTP")
+    w.add_argument("--host", default="0.0.0.0", help="Address to listen on in LAN mode. Default 0.0.0.0 (all)")
+    w.add_argument("--new-access-code", action="store_true", help="With --lan: replace the stored access code and print the new one")
     w.set_defaults(func=cmd_serve)
     a = p.parse_args(argv)
     return a.func(a)

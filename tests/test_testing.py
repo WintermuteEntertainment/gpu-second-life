@@ -860,6 +860,21 @@ class WebPage(unittest.TestCase):
             with self.assertRaises(ValueError):
                 test_args(cfg, bad, "01:00.0", Path("out"))
 
+    def test_burn_memory_option(self):
+        from gpudoc.testing import burn_memory_error
+        from gpudoc.web import test_args
+        self.assertEqual(GpuBurn("gpu_burn", 300, memory="98%").command()[1:], ["-m", "98%", "300"])
+        self.assertEqual(GpuBurn("gpu_burn", 300).command()[1:], ["300"])
+        for good in ("98%", "10%", "5000"):
+            self.assertIsNone(burn_memory_error(good))
+        for bad in ("101%", "5%", "32", "lots", "98 %"):
+            self.assertIsNotNone(burn_memory_error(bad))
+        cfg = {"gpu_burn": "/b", "llama_bench": "/lb", "model": "/m"}
+        self.assertEqual(test_args(cfg, ["gpu_burn"], "01:00.0", Path("o"), {"burn_memory": "98%"})[-2:], ["--burn-memory", "98%"])
+        self.assertNotIn("--burn-memory", test_args(cfg, ["llama_bench"], "01:00.0", Path("o"), {"burn_memory": "98%"}))
+        with self.assertRaises(ValueError):
+            test_args(cfg, ["gpu_burn"], "01:00.0", Path("o"), {"burn_memory": "150%"})
+
     def test_paths_cannot_leave_the_results_folder(self):
         from gpudoc.web import safe_child
         base = CAPTURES / "web_runs"
@@ -874,6 +889,18 @@ class WebPage(unittest.TestCase):
         self.assertEqual([c["state"] for c in runs[0]["cards"]], ["PASS", "PASS"])
         self.assertEqual([s["tool"] for s in runs[0]["cards"][0]["steps"]],
                          ["dcgm_diag", "gpu_burn", "gpu_fryer", "llama_bench", "localscore", "wattever"])
+
+    def test_run_titles_and_live_output(self):
+        from gpudoc.web import folder_time, tool_tail
+        self.assertEqual(folder_time("test-20261113-090735"), "2026-11-13 09:07")
+        self.assertIsNone(folder_time("tune-20261111-172819"))
+        # A real gpu-burn stdout, whose progress lines redraw with carriage returns.
+        run = Path(tempfile.mkdtemp())
+        (run / "1_gpu_burn").mkdir()
+        (run / "1_gpu_burn" / "tool_stdout.txt").write_bytes((CAPTURES / "gpu_burn_gtx1660ti_mint_30s" / "stdout.txt").read_bytes())
+        tail = tool_tail(run)
+        self.assertEqual(tail[-1].strip(), "GPU 0: OK")
+        self.assertFalse(any("\r" in line for line in tail))
 
     def test_only_configured_tools_are_offered(self):
         tools = {t["id"]: t["available"] for t in json.loads(self.request("GET", "/api/info")[1])["tools"]}
@@ -931,6 +958,73 @@ class WebPage(unittest.TestCase):
 
     def test_stop_with_nothing_running_is_refused(self):
         self.assertEqual(self.request("POST", "/api/stop", {})[0], 409)
+
+
+
+class WebPageLanMode(unittest.TestCase):
+    """LAN mode's login, with a real server (bound to loopback for the test) and a real generated access code."""
+
+    @classmethod
+    def setUpClass(cls):
+        import threading
+        from gpudoc.web import load_access, make_server, new_access_code
+        cls.tmp = Path(tempfile.mkdtemp())
+        cls.code = new_access_code(cls.tmp / "web-access.json")
+        cls.httpd = make_server(0, None, CAPTURES / "web_runs", host="127.0.0.1", access=load_access(cls.tmp / "web-access.json"))
+        cls.port = cls.httpd.server_port
+        threading.Thread(target=cls.httpd.serve_forever, daemon=True).start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.httpd.shutdown()
+        cls.httpd.server_close()
+
+    def request(self, method, path, body=None, headers=None):
+        import http.client
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        h = {"Content-Type": "application/json"} if body is not None else {}
+        h.update(headers or {})
+        c.request(method, path, body=json.dumps(body) if body is not None else None, headers=h)
+        r = c.getresponse()
+        data = r.read()
+        cookie = r.getheader("Set-Cookie")
+        c.close()
+        return r.status, data, cookie
+
+    def test_only_a_hash_is_stored(self):
+        stored = (self.tmp / "web-access.json").read_text(encoding="utf-8")
+        self.assertNotIn(self.code, stored)
+
+    def test_everything_needs_the_login(self):
+        code, page, _ = self.request("GET", "/")
+        self.assertEqual(code, 200)
+        self.assertIn(b"access code", page)
+        self.assertNotIn(b"Run a test", page)
+        for path in ("/api/info", "/api/runs", "/api/status", "/runs/test-20261112-045134/gpu0_00000000-01-00.0/suite.json"):
+            self.assertEqual(self.request("GET", path)[0], 401, path)
+        self.assertEqual(self.request("POST", "/api/stop", {})[0], 401)
+
+    def test_right_code_gives_a_session_and_logout_ends_it(self):
+        self.assertEqual(self.request("POST", "/api/login", {"code": "wrong"})[0], 401)
+        code, _, cookie = self.request("POST", "/api/login", {"code": self.code})
+        self.assertEqual(code, 200)
+        self.assertIn("HttpOnly", cookie)
+        self.assertIn("SameSite=Strict", cookie)
+        session = {"Cookie": cookie.split(";")[0]}
+        self.assertEqual(self.request("GET", "/api/info", headers=session)[0], 200)
+        self.assertIn(b"Run a test", self.request("GET", "/", headers=session)[1])
+        # Another site can't use the session to act.
+        self.assertEqual(self.request("POST", "/api/stop", {}, {**session, "Origin": "http://attacker.example"})[0], 403)
+        self.assertEqual(self.request("POST", "/api/logout", {}, session)[0], 200)
+        self.assertEqual(self.request("GET", "/api/info", headers=session)[0], 401)
+
+    def test_repeated_wrong_codes_slow_down(self):
+        statuses = [self.request("POST", "/api/login", {"code": f"guess{i}"}, {"X-Test": "lockout"})[0] for i in range(6)]
+        self.assertEqual(statuses[-1], 429)
+        # Even the right code waits during the lockout.
+        self.assertEqual(self.request("POST", "/api/login", {"code": self.code})[0], 429)
+        with self.httpd.app["lock"]:
+            self.httpd.app["failures"].clear()
 
 
 if __name__ == "__main__":

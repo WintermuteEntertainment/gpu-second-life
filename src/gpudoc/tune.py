@@ -75,7 +75,7 @@ def reset(gpu_select: str | None, runner=None) -> dict:
 
 
 def run_tune(tool_id: str, tool_path: str, gpu_select: str | None, step: int, ceiling: int, seconds: int, confirm_seconds: int,
-             out_dir: Path, runner=None) -> dict:
+             out_dir: Path, runner=None, burn_memory: str | None = None) -> dict:
     runner = runner or LocalRunner()
     report, _ = inspect(runner)
     g, why = select_gpu(report, gpu_select)
@@ -99,7 +99,7 @@ def run_tune(tool_id: str, tool_path: str, gpu_select: str | None, step: int, ce
         return {"error": f"Clock offsets can't be set here: {probe['error']}. This needs root (sudo without a prompt) on Linux or an administrator shell on Windows."}
 
     def make(n: int):
-        return GpuBurn(tool_path, n) if tool_id == "gpu_burn" else MemtestVulkan(tool_path)
+        return GpuBurn(tool_path, n, memory=burn_memory) if tool_id == "gpu_burn" else MemtestVulkan(tool_path)
 
     def one(offset: int, n: int, name: str) -> dict:
         start_temp = wait_cool(runner, bus)
