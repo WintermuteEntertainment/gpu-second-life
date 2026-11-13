@@ -497,7 +497,7 @@ class LocalScore:
             # Found on Noodlecart, 2026-11-12: llama.cpp's CUDA code treats GTX 16 cards (compute 7.5, no tensor cores) like
             # RTX 20 cards. A standard CUDA build processed prompts on a GTX 1660 Ti at a third of the speed of a build forcing
             # the Pascal code paths, at 72 W instead of 119 W. LocalScore's bundled CUDA build showed the same low power.
-            out["note_lines"] = ["This is a GTX 16 card, which has no tensor cores. LocalScore's bundled CUDA build runs it on code "
+            out["note_lines"] = ["This is a GTX 16 card, which has no tensor cores. LocalScore's CUDA library (bundled on Linux, compiled on first use on Windows) runs it on code "
                                  "meant for tensor-core cards, so prompt speed and its score understate the card. Compare it only "
                                  "with other GTX 16 runs of the same LocalScore build."]
         if any(line.startswith("Results Submitted") or "submitted successfully" in line.lower() for line in lines):
