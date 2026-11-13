@@ -27,10 +27,11 @@ DEFAULT_PORT = 8740
 
 # Each tool the page can run, with the `gpudoc test` flags it needs from the tools file.
 TOOLS = {
-    "dcgm": {"label": "DCGM diagnostics (level 1)", "flags": [("--dcgm", "dcgm")]},
+    "dcgm": {"label": "DCGM diagnostics (level 1)", "flags": [("--dcgm", "dcgm")], "linux_only": "Nvidia makes DCGM for Linux only"},
     "memtest": {"label": "memtest_vulkan (memory)", "flags": [("--tool-path", "tool_path")]},
     "gpu_burn": {"label": "gpu-burn (compute, error check)", "flags": [("--gpu-burn", "gpu_burn")]},
-    "gpu_fryer": {"label": "gpu-fryer (load and throttling)", "flags": [("--gpu-fryer", "gpu_fryer")]},
+    "gpu_fryer": {"label": "gpu-fryer (load and throttling)", "flags": [("--gpu-fryer", "gpu_fryer")],
+                  "linux_only": "gpu-fryer 1.0.0 doesn't build on Windows (part of its code is Unix only)"},
     "llama_bench": {"label": "llama-bench (AI speed)", "flags": [("--llama-bench", "llama_bench"), ("--model", "model")]},
     "localscore": {"label": "LocalScore (AI score, never uploaded)", "flags": [("--localscore", "localscore"), ("--localscore-model", "localscore_model")]},
     "wattever": {"label": "Wattever (AI speed and power)", "flags": [("--wattever", "wattever"), ("--llama-server", "llama_server"), ("--model", "model")]},
@@ -46,11 +47,19 @@ def load_tools(path: Path | None) -> dict:
     return {k: v for k, v in data.items() if isinstance(v, str) and v.strip()}
 
 
-def available_tools(config: dict) -> list[dict]:
+def available_tools(config: dict, platform: str | None = None) -> list[dict]:
+    """Each tool, whether it can run here, and if not, why: a Linux-only tool on another system, or not set up."""
+    linux = (platform or sys.platform).startswith("linux")
     out = []
     for tid, t in TOOLS.items():
         missing = [key for _, key in t["flags"] if key not in config]
-        out.append({"id": tid, "label": t["label"], "available": not missing, "missing": missing})
+        if t.get("linux_only") and not linux:
+            reason = f"Linux only: {t['linux_only']}"
+        elif missing:
+            reason = "Not set up: add " + ", ".join(missing) + " to the tools file"
+        else:
+            reason = None
+        out.append({"id": tid, "label": t["label"], "available": reason is None, "missing": missing, "reason": reason})
     return out
 
 
@@ -367,7 +376,7 @@ function renderCards(){$("cards").innerHTML=cards.length?cards.map(c=>`<label cl
 document.querySelectorAll('input[name=gpu]').forEach(i=>i.onchange=()=>{sel=i.value;renderCards();limits();refreshStart()})}
 function limits(){const c=cards.find(c=>c.bus===sel);$("limits").textContent=c?`Card: ${c.label}. GPUDoc stops the test at ${c.stop_limit} C. Time limit per tool: 900 s.`:"Choose a card."}
 async function load(){const [,i]=await api("/api/info");info=i;$("meta").textContent=`Version ${i.version} · results in ${i.out} · tools file ${i.tools_file||"none"} · this machine only`;
-$("warn").textContent=i.warning;$("tools").innerHTML=i.tools.map(t=>`<label class="${t.available?"":"off"}"><input type="checkbox" value="${t.id}" ${t.available?"":"disabled"}> ${esc(t.label)}${t.available?"":` <small>(not set up: ${esc(t.missing.join(", "))})</small>`}</label>`).join("");
+$("warn").textContent=i.warning;$("tools").innerHTML=i.tools.map(t=>`<label class="${t.available?"":"off"}"><input type="checkbox" value="${t.id}" ${t.available?"":"disabled"}> ${esc(t.label)}${t.available?"":` <small>(${esc(t.reason)})</small>`}</label>`).join("");
 document.querySelectorAll(".tools input").forEach(i=>i.onchange=refreshStart);$("ok").onchange=refreshStart;
 const [,c]=await api("/api/cards");cards=c.cards;if(cards.length===1)sel=cards[0].bus;renderCards();limits();refreshStart();loadRuns();status()}
 $("start").onclick=async()=>{const tools=[...document.querySelectorAll(".tools input:checked")].map(i=>i.value);$("msg").textContent="Starting...";

@@ -880,6 +880,17 @@ class WebPage(unittest.TestCase):
         self.assertTrue(tools["gpu_burn"] and tools["wattever"])
         self.assertFalse(tools["localscore"] or tools["memtest"])
 
+    def test_greyed_out_tools_say_why(self):
+        from gpudoc.web import available_tools
+        cfg = {"gpu_burn": "/b", "gpu_fryer": "/f", "dcgm": "dcgmi"}
+        win = {t["id"]: t for t in available_tools(cfg, "win32")}
+        self.assertTrue(win["gpu_burn"]["available"])
+        self.assertTrue(win["gpu_fryer"]["reason"].startswith("Linux only"))
+        self.assertTrue(win["dcgm"]["reason"].startswith("Linux only"))
+        self.assertTrue(win["memtest"]["reason"].startswith("Not set up"))
+        linux = {t["id"]: t for t in available_tools(cfg, "linux")}
+        self.assertTrue(linux["gpu_fryer"]["available"] and linux["dcgm"]["available"])
+
     def test_other_hosts_and_origins_are_refused(self):
         self.assertEqual(self.request("GET", "/api/info", headers={"Host": "attacker.example"})[0], 403)
         self.assertEqual(self.request("POST", "/api/stop", {}, {"Origin": "http://attacker.example"})[0], 403)
