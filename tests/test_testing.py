@@ -817,5 +817,110 @@ class RealLlamaDeviceSelection(unittest.TestCase):
         self.assertEqual([f["rule"] for f in load_findings(usage, parse_bus_id("01:00.0"))], ["RUN-009"])
 
 
+
+class WebPage(unittest.TestCase):
+    """The local web page's request handling. No test is ever started here: every request below is one the page refuses
+    or one that only reads. Run listing uses trimmed real suite.json files from the clean all-adapter run, 2026-11-12."""
+
+    @classmethod
+    def setUpClass(cls):
+        import threading
+        from gpudoc.web import make_server
+        cls.tmp = Path(tempfile.mkdtemp())
+        tools = cls.tmp / "tools.json"
+        tools.write_text(json.dumps({"gpu_burn": "/opt/gpu_burn", "llama_bench": "/opt/llama-bench", "model": "/m/q.gguf",
+                                     "wattever": "/opt/wattever", "llama_server": "/opt/llama-server"}), encoding="utf-8")
+        cls.httpd = make_server(0, tools, CAPTURES / "web_runs")
+        cls.port = cls.httpd.server_port
+        threading.Thread(target=cls.httpd.serve_forever, daemon=True).start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.httpd.shutdown()
+        cls.httpd.server_close()
+
+    def request(self, method, path, body=None, headers=None):
+        import http.client
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        h = {"Content-Type": "application/json"} if body is not None else {}
+        h.update(headers or {})
+        c.request(method, path, body=json.dumps(body) if isinstance(body, dict) else body, headers=h)
+        r = c.getresponse()
+        data = r.read()
+        c.close()
+        return r.status, data
+
+    def test_tool_arguments(self):
+        from gpudoc.web import test_args
+        cfg = {"gpu_burn": "/b", "llama_bench": "/lb", "model": "/m", "wattever": "/w", "llama_server": "/ls"}
+        args = test_args(cfg, ["gpu_burn", "llama_bench", "wattever"], "01:00.0", Path("out"))
+        self.assertEqual(args[:9], ["test", "--gpu", "01:00.0", "--out", "out", "--max-seconds", "900", "--yes", "--gpu-burn"])
+        self.assertEqual(args.count("--model"), 1)
+        for bad in (["nope"], ["localscore"], []):
+            with self.assertRaises(ValueError):
+                test_args(cfg, bad, "01:00.0", Path("out"))
+
+    def test_paths_cannot_leave_the_results_folder(self):
+        from gpudoc.web import safe_child
+        base = CAPTURES / "web_runs"
+        self.assertIsNone(safe_child(base, "../../src/gpudoc/web.py"))
+        self.assertIsNotNone(safe_child(base, "test-20261112-045134/gpu0_00000000-01-00.0/suite.json"))
+        self.assertEqual(self.request("GET", "/runs/..%2F..%2Ftest_testing.py")[0], 404)
+
+    def test_real_runs_are_listed(self):
+        code, data = self.request("GET", "/api/runs")
+        runs = json.loads(data)["runs"]
+        self.assertEqual(code, 200)
+        self.assertEqual([c["state"] for c in runs[0]["cards"]], ["PASS", "PASS"])
+        self.assertEqual([s["tool"] for s in runs[0]["cards"][0]["steps"]],
+                         ["dcgm_diag", "gpu_burn", "gpu_fryer", "llama_bench", "localscore", "wattever"])
+
+    def test_only_configured_tools_are_offered(self):
+        tools = {t["id"]: t["available"] for t in json.loads(self.request("GET", "/api/info")[1])["tools"]}
+        self.assertTrue(tools["gpu_burn"] and tools["wattever"])
+        self.assertFalse(tools["localscore"] or tools["memtest"])
+
+    def test_other_hosts_and_origins_are_refused(self):
+        self.assertEqual(self.request("GET", "/api/info", headers={"Host": "attacker.example"})[0], 403)
+        self.assertEqual(self.request("POST", "/api/stop", {}, {"Origin": "http://attacker.example"})[0], 403)
+        self.assertEqual(self.request("POST", "/api/run", "confirm=YES", {"Content-Type": "text/plain"})[0], 415)
+
+    def test_a_run_needs_confirmation_a_card_and_a_tool(self):
+        self.assertEqual(self.request("POST", "/api/run", {"gpu": "01:00.0", "tools": ["gpu_burn"]})[0], 400)
+        self.assertEqual(self.request("POST", "/api/run", {"tools": ["gpu_burn"], "confirm": "YES"})[0], 400)
+        self.assertEqual(self.request("POST", "/api/run", {"gpu": "01:00.0", "tools": [], "confirm": "YES"})[0], 400)
+        self.assertFalse(self.httpd.app["runner"].running())
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "the die-with-parent signal is Linux only")
+    def test_started_process_outlives_the_request_thread(self):
+        # The real bug from 2026-11-13: a process started from a short-lived request thread was killed when the thread
+        # ended. This starts a harmless real process (sleep) the same way and checks it is still running afterwards.
+        import threading
+        from gpudoc.web import Runner
+        out = Path(tempfile.mkdtemp())
+        r = Runner(out)
+        holder = {}
+        t = threading.Thread(target=lambda: holder.update(r=r.start(["--version"])))
+        orig = sys.executable
+        try:
+            sys.executable = "/bin/sleep"
+            # "-c <code>" is prepended by Runner; sleep would reject it, so point the code argument at a duration instead.
+            import gpudoc.web as web
+            real_popen = web.subprocess.Popen
+            web.subprocess.Popen = lambda cmd, **kw: real_popen(["/bin/sleep", "3"], **kw)
+            t.start()
+            t.join()
+            time.sleep(1)
+            self.assertTrue(r.running(), holder)
+        finally:
+            sys.executable = orig
+            web.subprocess.Popen = real_popen
+            if r.proc:
+                r.proc.wait(timeout=10)
+
+    def test_stop_with_nothing_running_is_refused(self):
+        self.assertEqual(self.request("POST", "/api/stop", {})[0], 409)
+
+
 if __name__ == "__main__":
     unittest.main()

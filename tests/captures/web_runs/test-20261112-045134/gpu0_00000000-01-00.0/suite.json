@@ -1,0 +1,179 @@
+{
+ "state": "PASS",
+ "skipped": [],
+ "steps": [
+  {
+   "tool_id": "dcgm_diag",
+   "state": "PASS",
+   "findings": [
+    {
+     "rule": "LIM-001",
+     "state": "NOTE",
+     "text": "A pass only covers this tool, date, and setup. It doesn't predict lifespan."
+    }
+   ],
+   "summary": {
+    "samples": 1,
+    "peak_temp": 35,
+    "peak_memory_used": 205,
+    "iterations": 1,
+    "stop_reason": "tool_exited",
+    "gpu_energy_wh": null
+   },
+   "gpu_name": "NVIDIA GeForce GTX 1660 Ti",
+   "gpu_bus_id": "00000000:01:00.0"
+  },
+  {
+   "tool_id": "gpu_burn",
+   "state": "PASS",
+   "findings": [
+    {
+     "rule": "PWR-001",
+     "state": "NOTE",
+     "text": "The card's power limit held clocks back in 60 of 66 samples. Speed and energy figures from this run reflect that limit."
+    },
+    {
+     "rule": "LIM-001",
+     "state": "NOTE",
+     "text": "A pass only covers this tool, date, and setup. It doesn't predict lifespan."
+    }
+   ],
+   "summary": {
+    "samples": 66,
+    "peak_temp": 77,
+    "peak_memory_used": 5156,
+    "iterations": 1292,
+    "stop_reason": "tool_exited",
+    "gpu_energy_wh": 10.08,
+    "avg_power_under_load_w": 117.3,
+    "avg_gpu_clock_under_load_mhz": 1646,
+    "gflops": 4729,
+    "gflops_per_gpu_watt": 40.3,
+    "power_cap_samples": 60
+   },
+   "gpu_name": "NVIDIA GeForce GTX 1660 Ti",
+   "gpu_bus_id": "00000000:01:00.0"
+  },
+  {
+   "tool_id": "gpu_fryer",
+   "state": "PASS",
+   "findings": [
+    {
+     "rule": "PWR-001",
+     "state": "NOTE",
+     "text": "The card's power limit held clocks back in 60 of 60 samples. Speed and energy figures from this run reflect that limit."
+    },
+    {
+     "rule": "LIM-001",
+     "state": "NOTE",
+     "text": "A pass only covers this tool, date, and setup. It doesn't predict lifespan."
+    }
+   ],
+   "summary": {
+    "samples": 60,
+    "peak_temp": 77,
+    "peak_memory_used": 5156,
+    "iterations": 1,
+    "stop_reason": "tool_finished",
+    "gpu_energy_wh": 9.82,
+    "avg_power_under_load_w": 118.6,
+    "avg_gpu_clock_under_load_mhz": 1631,
+    "gflops": 4767,
+    "gflops_per_gpu_watt": 40.2,
+    "power_cap_samples": 60
+   },
+   "gpu_name": "NVIDIA GeForce GTX 1660 Ti",
+   "gpu_bus_id": "00000000:01:00.0"
+  },
+  {
+   "tool_id": "llama_bench",
+   "state": "PASS",
+   "findings": [
+    {
+     "rule": "PWR-001",
+     "state": "NOTE",
+     "text": "The card's power limit held clocks back in 3 of 5 samples. Speed and energy figures from this run reflect that limit."
+    },
+    {
+     "rule": "LIM-001",
+     "state": "NOTE",
+     "text": "A pass only covers this tool, date, and setup. It doesn't predict lifespan."
+    }
+   ],
+   "summary": {
+    "samples": 5,
+    "peak_temp": 70,
+    "peak_memory_used": 4749,
+    "iterations": 2,
+    "stop_reason": "tool_exited",
+    "gpu_energy_wh": 0.6,
+    "avg_power_under_load_w": 101.4,
+    "avg_gpu_clock_under_load_mhz": 1803,
+    "generation_tokens_per_second": 41.469168,
+    "prompt_tokens_per_second": 419.757452,
+    "tokens_per_gpu_watt_hour": 1473,
+    "power_cap_samples": 3
+   },
+   "gpu_name": "NVIDIA GeForce GTX 1660 Ti",
+   "gpu_bus_id": "00000000:01:00.0"
+  },
+  {
+   "tool_id": "localscore",
+   "state": "PASS",
+   "findings": [
+    {
+     "rule": "LIM-001",
+     "state": "NOTE",
+     "text": "A pass only covers this tool, date, and setup. It doesn't predict lifespan."
+    }
+   ],
+   "summary": {
+    "samples": 66,
+    "peak_temp": 73,
+    "peak_memory_used": 1628,
+    "iterations": 9,
+    "stop_reason": "tool_exited",
+    "gpu_energy_wh": 6.05,
+    "avg_power_under_load_w": 65.9,
+    "avg_gpu_clock_under_load_mhz": 1866,
+    "generation_tokens_per_second": 36.73,
+    "prompt_tokens_per_second": 825.74,
+    "tokens_per_gpu_watt_hour": 2006
+   },
+   "gpu_name": "NVIDIA GeForce GTX 1660 Ti",
+   "gpu_bus_id": "00000000:01:00.0"
+  },
+  {
+   "tool_id": "wattever",
+   "state": "PASS",
+   "findings": [
+    {
+     "rule": "PWR-001",
+     "state": "NOTE",
+     "text": "The card's power limit held clocks back in 8 of 13 samples. Speed and energy figures from this run reflect that limit."
+    },
+    {
+     "rule": "LIM-001",
+     "state": "NOTE",
+     "text": "A pass only covers this tool, date, and setup. It doesn't predict lifespan."
+    }
+   ],
+   "summary": {
+    "samples": 13,
+    "peak_temp": 73,
+    "peak_memory_used": 4991,
+    "iterations": 4,
+    "stop_reason": "tool_exited",
+    "gpu_energy_wh": 1.45,
+    "avg_power_under_load_w": 105.7,
+    "avg_gpu_clock_under_load_mhz": 1818,
+    "generation_tokens_per_second": 39.99,
+    "prompt_tokens_per_second": 376.1,
+    "tokens_per_gpu_watt_hour": 1363,
+    "power_cap_samples": 8
+   },
+   "gpu_name": "NVIDIA GeForce GTX 1660 Ti",
+   "gpu_bus_id": "00000000:01:00.0"
+  }
+ ]
+}

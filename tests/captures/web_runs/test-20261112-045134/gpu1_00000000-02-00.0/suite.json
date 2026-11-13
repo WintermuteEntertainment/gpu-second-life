@@ -1,0 +1,200 @@
+{
+ "state": "PASS",
+ "skipped": [],
+ "steps": [
+  {
+   "tool_id": "dcgm_diag",
+   "state": "PASS",
+   "findings": [
+    {
+     "rule": "LIM-001",
+     "state": "NOTE",
+     "text": "A pass only covers this tool, date, and setup. It doesn't predict lifespan."
+    }
+   ],
+   "summary": {
+    "samples": 1,
+    "peak_temp": 35,
+    "peak_memory_used": 9,
+    "iterations": 1,
+    "stop_reason": "tool_exited",
+    "gpu_energy_wh": null
+   },
+   "gpu_name": "NVIDIA GeForce GTX 1060 6GB",
+   "gpu_bus_id": "00000000:02:00.0"
+  },
+  {
+   "tool_id": "gpu_burn",
+   "state": "PASS",
+   "findings": [
+    {
+     "rule": "PWR-001",
+     "state": "NOTE",
+     "text": "The card's power limit held clocks back in 20 of 66 samples. Speed and energy figures from this run reflect that limit."
+    },
+    {
+     "rule": "THM-003",
+     "state": "NOTE",
+     "text": "The driver lowered clocks to control temperature in 21 of 66 samples, peaking at 82 C. The card's target temperature is 83 C. This is the driver's normal temperature control, not a fault by itself."
+    },
+    {
+     "rule": "LIM-001",
+     "state": "NOTE",
+     "text": "A pass only covers this tool, date, and setup. It doesn't predict lifespan."
+    }
+   ],
+   "summary": {
+    "samples": 66,
+    "peak_temp": 82,
+    "peak_memory_used": 5463,
+    "iterations": 855,
+    "stop_reason": "tool_exited",
+    "gpu_energy_wh": 8.96,
+    "avg_power_under_load_w": 104.1,
+    "avg_gpu_clock_under_load_mhz": 1642,
+    "gflops": 3028,
+    "gflops_per_gpu_watt": 29.1,
+    "power_cap_samples": 20
+   },
+   "gpu_name": "NVIDIA GeForce GTX 1060 6GB",
+   "gpu_bus_id": "00000000:02:00.0"
+  },
+  {
+   "tool_id": "gpu_fryer",
+   "state": "PASS",
+   "findings": [
+    {
+     "rule": "PWR-001",
+     "state": "NOTE",
+     "text": "The card's power limit held clocks back in 11 of 60 samples. Speed and energy figures from this run reflect that limit."
+    },
+    {
+     "rule": "THM-003",
+     "state": "NOTE",
+     "text": "The driver lowered clocks to control temperature in 38 of 60 samples, peaking at 83 C. The card's target temperature is 83 C. This is the driver's normal temperature control, not a fault by itself."
+    },
+    {
+     "rule": "LIM-001",
+     "state": "NOTE",
+     "text": "A pass only covers this tool, date, and setup. It doesn't predict lifespan."
+    }
+   ],
+   "summary": {
+    "samples": 60,
+    "peak_temp": 83,
+    "peak_memory_used": 5463,
+    "iterations": 1,
+    "stop_reason": "tool_finished",
+    "gpu_energy_wh": 8.18,
+    "avg_power_under_load_w": 98.9,
+    "avg_gpu_clock_under_load_mhz": 1598,
+    "gflops": 3116,
+    "gflops_per_gpu_watt": 31.5,
+    "power_cap_samples": 11
+   },
+   "gpu_name": "NVIDIA GeForce GTX 1060 6GB",
+   "gpu_bus_id": "00000000:02:00.0"
+  },
+  {
+   "tool_id": "llama_bench",
+   "state": "PASS",
+   "findings": [
+    {
+     "rule": "PWR-001",
+     "state": "NOTE",
+     "text": "The card's power limit held clocks back in 2 of 9 samples. Speed and energy figures from this run reflect that limit."
+    },
+    {
+     "rule": "LIM-001",
+     "state": "NOTE",
+     "text": "A pass only covers this tool, date, and setup. It doesn't predict lifespan."
+    }
+   ],
+   "summary": {
+    "samples": 9,
+    "peak_temp": 76,
+    "peak_memory_used": 4549,
+    "iterations": 2,
+    "stop_reason": "tool_exited",
+    "gpu_energy_wh": 1.19,
+    "avg_power_under_load_w": 107.4,
+    "avg_gpu_clock_under_load_mhz": 1764,
+    "generation_tokens_per_second": 27.123125,
+    "prompt_tokens_per_second": 178.867504,
+    "tokens_per_gpu_watt_hour": 909,
+    "power_cap_samples": 2
+   },
+   "gpu_name": "NVIDIA GeForce GTX 1060 6GB",
+   "gpu_bus_id": "00000000:02:00.0"
+  },
+  {
+   "tool_id": "localscore",
+   "state": "PASS",
+   "findings": [
+    {
+     "rule": "PWR-001",
+     "state": "NOTE",
+     "text": "The card's power limit held clocks back in 1 of 29 samples. Speed and energy figures from this run reflect that limit."
+    },
+    {
+     "rule": "THM-003",
+     "state": "NOTE",
+     "text": "The driver lowered clocks to control temperature in 9 of 29 samples, peaking at 82 C. The card's target temperature is 83 C. This is the driver's normal temperature control, not a fault by itself."
+    },
+    {
+     "rule": "LIM-001",
+     "state": "NOTE",
+     "text": "A pass only covers this tool, date, and setup. It doesn't predict lifespan."
+    }
+   ],
+   "summary": {
+    "samples": 29,
+    "peak_temp": 82,
+    "peak_memory_used": 1299,
+    "iterations": 9,
+    "stop_reason": "tool_exited",
+    "gpu_energy_wh": 4.01,
+    "avg_power_under_load_w": 103.6,
+    "avg_gpu_clock_under_load_mhz": 1779,
+    "generation_tokens_per_second": 70.39,
+    "prompt_tokens_per_second": 1692.25,
+    "tokens_per_gpu_watt_hour": 2446,
+    "power_cap_samples": 1
+   },
+   "gpu_name": "NVIDIA GeForce GTX 1060 6GB",
+   "gpu_bus_id": "00000000:02:00.0"
+  },
+  {
+   "tool_id": "wattever",
+   "state": "PASS",
+   "findings": [
+    {
+     "rule": "PWR-001",
+     "state": "NOTE",
+     "text": "The card's power limit held clocks back in 2 of 21 samples. Speed and energy figures from this run reflect that limit."
+    },
+    {
+     "rule": "LIM-001",
+     "state": "NOTE",
+     "text": "A pass only covers this tool, date, and setup. It doesn't predict lifespan."
+    }
+   ],
+   "summary": {
+    "samples": 21,
+    "peak_temp": 77,
+    "peak_memory_used": 4791,
+    "iterations": 4,
+    "stop_reason": "tool_exited",
+    "gpu_energy_wh": 2.22,
+    "avg_power_under_load_w": 89.8,
+    "avg_gpu_clock_under_load_mhz": 1823,
+    "generation_tokens_per_second": 26.11,
+    "prompt_tokens_per_second": 170.12,
+    "tokens_per_gpu_watt_hour": 1047,
+    "power_cap_samples": 2
+   },
+   "gpu_name": "NVIDIA GeForce GTX 1060 6GB",
+   "gpu_bus_id": "00000000:02:00.0"
+  }
+ ]
+}

@@ -205,6 +205,15 @@ def cmd_tune(a) -> int:
     return 0 if result.get("baseline") and not result.get("error") and result.get("restored_to_stock") else 2
 
 
+def cmd_serve(a) -> int:
+    from .web import serve
+    tools = Path(a.tools) if a.tools else (Path("gpudoc-tools.json") if Path("gpudoc-tools.json").exists() else None)
+    if a.tools and not tools.exists():
+        print(f"Tools file not found: {tools}")
+        return 3
+    return serve(a.port, tools, Path(a.out))
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="gpudoc", description="Evidence-based reports on used GPUs.")
     p.add_argument("--version", action="version", version=__version__)
@@ -256,6 +265,12 @@ def main(argv=None) -> int:
     u.add_argument("--out", default="gpudoc-runs", help="Folder for results")
     u.add_argument("--yes", action="store_true", help="Skip the confirmation prompt")
     u.set_defaults(func=cmd_tune)
+    w = sub.add_parser("serve", help="Draft: open a local web page to see cards, run tests and browse results. This machine only.")
+    w.add_argument("--port", type=int, default=8740, help="Port on 127.0.0.1. Default 8740")
+    w.add_argument("--tools", help="JSON file of tool paths, keyed like the test options (tool_path, gpu_burn, model, ...). "
+                                   "Default: gpudoc-tools.json in the current folder, if present")
+    w.add_argument("--out", default="gpudoc-runs", help="Results folder, shared with gpudoc test")
+    w.set_defaults(func=cmd_serve)
     a = p.parse_args(argv)
     return a.func(a)
 

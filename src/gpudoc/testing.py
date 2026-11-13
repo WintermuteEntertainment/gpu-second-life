@@ -724,10 +724,11 @@ def still_running(pattern: str | list[str], runner) -> list[str]:
         lines = runner.run(["tasklist", "/FO", "CSV", "/NH"]).stdout.splitlines()
     else:
         procs = {}
-        for line in runner.run(["ps", "-eo", "pid=,ppid=,args="]).stdout.splitlines():
-            parts = line.split(None, 2)
-            if len(parts) >= 2 and parts[0].isdigit() and parts[1].isdigit():
-                procs[int(parts[0])] = (int(parts[1]), parts[2] if len(parts) > 2 else "")
+        for line in runner.run(["ps", "-eo", "pid=,ppid=,stat=,args="]).stdout.splitlines():
+            parts = line.split(None, 3)
+            # A process that has exited but not yet been cleared away ("Z") isn't running anything.
+            if len(parts) >= 3 and parts[0].isdigit() and parts[1].isdigit() and not parts[2].startswith("Z"):
+                procs[int(parts[0])] = (int(parts[1]), parts[3] if len(parts) > 3 else "")
         # GPUDoc and the shells that started it name the tools in their own command lines, so skip that chain.
         mine, pid = set(), os.getpid()
         while pid in procs and pid not in mine:
@@ -1080,7 +1081,13 @@ def run_adapter(adapter, out_dir: Path, gpu_select: str | None = None, max_secon
                 reason, interrupted_by = "interrupted", str(e)
             _set_handlers(signal.SIG_IGN)  # further signals wait until the tool is stopped and the result is written
             stop = stop_and_confirm(proc)
-        leftovers = still_running(getattr(adapter, "process_names", None) or Path(adapter.exe).stem, runner)
+        names = getattr(adapter, "process_names", None) or Path(adapter.exe).stem
+        leftovers = still_running(names, runner)
+        if leftovers:
+            # A tool's workers can take a moment to exit after the tree is stopped (seen with gpu-burn on 2026-11-13),
+            # so look once more before reporting them.
+            time.sleep(3)
+            leftovers = still_running(names, runner)
         if leftovers:
             stop["stopped"] = False
             stop["method"] = "processes_left_running"
