@@ -16,6 +16,7 @@ import hmac
 import json
 import os
 import secrets
+import socket
 import time
 import signal
 import subprocess
@@ -73,6 +74,15 @@ TOOLS = {
     "localscore": {"label": "LocalScore (AI score, never uploaded)", "flags": [("--localscore", "localscore"), ("--localscore-model", "localscore_model")]},
     "wattever": {"label": "Wattever (AI speed and power)", "flags": [("--wattever", "wattever"), ("--llama-server", "llama_server"), ("--model", "model")]},
 }
+DESCRIPTIONS = {
+    "dcgm": "Nvidia's quick health check. Seconds.",
+    "memtest": "Writes and checks the card's memory. About 5 minutes.",
+    "gpu_burn": "Heavy compute load that checks every result for errors. 5 minutes.",
+    "gpu_fryer": "Heavy compute load that watches for throttling. 5 minutes.",
+    "llama_bench": "AI speed with the 7B model. About 1 minute.",
+    "localscore": "AI benchmark score with a 1B model. Never uploaded. About 6 minutes.",
+    "wattever": "AI speed and energy per token with the 7B model. About 2 minutes.",
+}
 WARNING = "These tests stress the GPU and raise its temperature, and they could expose or worsen an existing fault."
 
 
@@ -96,7 +106,8 @@ def available_tools(config: dict, platform: str | None = None) -> list[dict]:
             reason = "Not set up: add " + ", ".join(missing) + " to the tools file"
         else:
             reason = None
-        out.append({"id": tid, "label": t["label"], "available": reason is None, "missing": missing, "reason": reason})
+        out.append({"id": tid, "label": t["label"], "available": reason is None, "missing": missing, "reason": reason,
+                    "description": DESCRIPTIONS.get(tid, "")})
     return out
 
 
@@ -122,6 +133,15 @@ def test_args(config: dict, tools: list[str], gpu: str, out_dir: Path, options: 
             raise ValueError(burn_memory_error(str(memory)))
         args += ["--burn-memory", str(memory)]
     return args
+
+
+def lan_addresses() -> list[str]:
+    """This machine's IPv4 addresses, without loopback and self-assigned ones."""
+    try:
+        found = {a[4][0] for a in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET)}
+    except OSError:
+        return []
+    return sorted(a for a in found if not a.startswith(("127.", "169.254.")))
 
 
 def card_summary(report: dict) -> list[dict]:
@@ -170,8 +190,9 @@ def list_runs(out_dir: Path) -> list[dict]:
         utc = sorted(st["started_utc"] for c in cards for st in c["steps"] if st.get("started_utc"))
         runs.append({"name": d.name, "cards": cards, "complete": bool(cards), "started_utc": utc[0] if utc else None,
                      "folder_time": folder_time(d.name)})
-    # Newest first by the UTC start where recorded; older runs only have the machine's local clock in their name.
-    runs.sort(key=lambda r: r["started_utc"] or "", reverse=True) if all(r["started_utc"] for r in runs) else None
+    # Newest first: runs with a recorded UTC start come first, in that order; older runs, which only have the machine's
+    # own clock in their folder name (possibly hours off on a dual-boot machine), follow by name.
+    runs.sort(key=lambda r: (r["started_utc"] is not None, r["started_utc"] or r["name"]), reverse=True)
     return runs
 
 
@@ -397,7 +418,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/info":
             return self._json({"version": __version__, "warning": WARNING, "tools": available_tools(app["config"]),
                                "tools_file": str(app["tools_file"]) if app["tools_file"] else None, "out": str(app["out"]),
-                               "lan": app["lan"]})
+                               "lan": app["lan"], "host": socket.gethostname(), "addresses": lan_addresses(),
+                               "port": self.server.server_port})
         if path == "/api/cards":
             report, _ = inspect(LocalRunner())
             return self._json({"cards": card_summary(report), "driver": report.get("driver_version"), "errors": report.get("errors", [])})
@@ -529,40 +551,67 @@ table{width:100%;border-collapse:collapse;font-size:.875rem}td,th{padding:5px 6p
 .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin:10px 0}.tile{border:1px solid var(--line);border-radius:8px;padding:8px 10px}.tile b{display:block;font-size:1.2rem}.tile span{font-size:.75rem;color:var(--muted)}
 canvas{width:100%;height:160px;border:1px solid var(--line);border-radius:8px}pre{white-space:pre-wrap;font-size:.75rem;max-height:220px;overflow:auto;background:var(--bg);padding:8px;border-radius:6px}
 details{border-top:1px solid var(--line);padding:6px 0}summary{cursor:pointer}.err{color:var(--bad)}.muted{color:var(--muted)}
+.kv{display:grid;grid-template-columns:max-content 1fr;gap:4px 14px;font-size:.875rem;margin:8px 0 0}.kv dt{color:var(--muted)}.kv dd{margin:0;overflow-wrap:anywhere}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}.tag{font-size:.75rem;border:1px solid var(--line);border-radius:99px;padding:0 8px;color:var(--muted)}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:6px}.stats div{background:var(--bg);border-radius:6px;padding:4px 8px}.stats b{display:block}.stats span{font-size:.72rem;color:var(--muted)}
+.step{display:flex;gap:10px;align-items:flex-start;margin:14px 0 6px}.num{flex:none;width:22px;height:22px;border-radius:50%;background:var(--accent);color:#fff;font-size:.8rem;display:grid;place-items:center;font-weight:600}
+.toolgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:8px}.tool{border:1px solid var(--line);border-radius:8px;padding:8px 10px;display:flex;gap:8px;cursor:pointer}
+.tool.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}.tool small{display:block;color:var(--muted)}.tool input{accent-color:var(--accent);margin-top:4px}
+.unavail{font-size:.85rem;color:var(--muted);margin-top:8px}.unavail li{margin:2px 0}.summary{background:var(--bg);border-radius:8px;padding:10px 12px;margin:8px 0}
+.legend{font-size:.82rem;color:var(--muted);margin:0 0 8px}.where{font-size:.82rem;color:var(--muted);margin:4px 0 8px;overflow-wrap:anywhere}
 </style></head><body><main>
-<h1>GPUDoc</h1><div class="meta"><span id="meta">Loading...</span> · times in <select id="tz" aria-label="Time zone for results">
+<h1>GPUDoc</h1><dl class="kv" id="conn"><dt>Loading...</dt><dd></dd></dl>
+<dl class="kv"><dt>Times shown in</dt><dd><select id="tz" aria-label="Time zone for results">
 <option value="America/Toronto">Eastern (Montreal, Toronto, New York)</option><option value="America/Chicago">Central</option>
 <option value="America/Denver">Mountain</option><option value="America/Los_Angeles">Pacific</option><option value="America/Halifax">Atlantic</option>
 <option value="America/St_Johns">Newfoundland</option><option value="UTC">UTC</option><option value="Europe/London">London</option>
 <option value="Europe/Paris">Central Europe</option><option value="Asia/Tokyo">Tokyo</option><option value="Australia/Sydney">Sydney</option>
-<option value="local">This browser's time zone</option></select></div>
+<option value="local">This browser's time zone</option></select></dd></dl><div style="height:14px"></div>
 <section class="card"><h2>Cards</h2><div class="cards" id="cards">Reading cards...</div></section>
-<section class="card"><h2>Run a test</h2><div class="tools" id="tools"></div>
-<div class="warnbox" id="warn"></div><div id="limits" class="muted"></div>
+<section class="card"><h2>Run a test</h2>
+<div class="step"><span class="num">1</span><div><b>Card</b><div id="limits" class="muted">Pick a card in the Cards section above.</div></div></div>
+<div class="step"><span class="num">2</span><div style="flex:1"><b>Tools</b> <span class="muted">(run one after another, with a 60 s cool-down between them)</span>
+<div class="toolgrid tools" id="tools"></div><div id="burnrow" class="summary" hidden>gpu-burn memory: <select id="burnmem">
+<option value="">90% of free memory (gpu-burn's default)</option><option>95%</option><option>98%</option></select></div>
+<div class="unavail" id="unavail"></div></div></div>
+<div class="step"><span class="num">3</span><div style="flex:1"><b>Confirm and start</b><div class="summary" id="plan">Choose a card and at least one tool.</div>
+<div class="warnbox" id="warn"></div>
 <p><label><input type="checkbox" id="ok"> I understand, and the card is ready to be stressed.</label></p>
-<button class="go" id="start" disabled>Start test</button> <button class="stop" id="stop" disabled>Stop</button> <span id="msg"></span></section>
+<button class="go" id="start" disabled>Start test</button> <button class="stop" id="stop" disabled>Stop</button> <span id="msg"></span></div></div></section>
 <section class="card" id="livecard"><h2>Live</h2><div id="livestate" class="muted">No test running.</div>
 <div class="tiles" id="tiles"></div><canvas id="chart" width="960" height="160"></canvas>
 <details id="toolbox" open><summary>Tool output, live (current step)</summary><pre id="toollog"></pre></details>
 <details><summary>GPUDoc output</summary><pre id="log"></pre></details></section>
-<section class="card"><h2>Results</h2><div id="runs">Loading...</div></section>
+<section class="card"><h2>Results</h2><p class="legend"><span class="chip PASS">PASS</span> no problem found ·
+<span class="chip ATTENTION">ATTENTION</span> worth a look · <span class="chip INCONCLUSIVE">INCONCLUSIVE</span> couldn't decide (stopped, wrong card, tool error) ·
+<span class="chip FAIL">FAIL</span> errors found. Notes explain the figures; open a run for details.</p><div id="runs">Loading...</div></section>
 </main><script>
 const $=id=>document.getElementById(id);let cards=[],info={},sel=null,poll=null;
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 async function api(p,body){const r=await fetch(p,body?{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}:{});return [r.status,await r.json()]}
 function chip(s){return `<span class="chip ${esc(s)}">${esc(s)}</span>`}
-function refreshStart(){const tools=[...document.querySelectorAll(".tools input:checked")];$("start").disabled=!(sel&&tools.length&&$("ok").checked)||!!poll}
+function chosen(){return [...document.querySelectorAll(".tools input:checked")].map(i=>i.value)}
+function refreshStart(){const tools=chosen();document.querySelectorAll(".tool").forEach(l=>l.classList.toggle("on",l.querySelector("input").checked));
+$("burnrow").hidden=!tools.includes("gpu_burn");const c=cards.find(c=>c.bus===sel);
+$("plan").innerHTML=c&&tools.length?`Will run <b>${esc(tools.map(t=>(info.tools.find(x=>x.id===t)||{}).label||t).map(l=>l.split(" (")[0]).join(", "))}</b> on <b>${esc(c.name)}</b>. GPUDoc stops a tool if the card reaches <b>${esc(c.stop_limit)} C</b>, and after 15 minutes at most.`:"Choose a card and at least one tool.";
+$("start").disabled=!(sel&&tools.length&&$("ok").checked)||!!poll}
 function renderCards(){$("cards").innerHTML=cards.length?cards.map(c=>`<label class="gpu ${sel===c.bus?"sel":""}"><input type="radio" name="gpu" value="${esc(c.bus)}" ${sel===c.bus?"checked":""}>
-<b>${esc(c.name)}</b><small>${esc(c.bus)} · ${esc(c.architecture)} · PCIe ${esc(c.pcie)} · driver ${esc(c.driver)}</small>
-<small>${esc(c.temperature)} C now · ${esc(c.power)} W · ${esc(Math.round(c.memory_total||0))} MiB · stop limit ${esc(c.stop_limit)} C</small></label>`).join(""):'<span class="err">No GPU was detected.</span>';
+<b>${esc(c.name)}</b><div class="chips"><span class="tag">${esc(c.architecture)}</span><span class="tag">slot ${esc((c.bus||"").replace(/^0+:/,""))}</span><span class="tag">PCIe ${esc(c.pcie)}</span><span class="tag">driver ${esc(c.driver)}</span></div>
+<div class="stats"><div><b>${esc(c.temperature)} C</b><span>now</span></div><div><b>${esc(Math.round(c.power||0))} W</b><span>power</span></div><div><b>${esc(((c.memory_total||0)/1024).toFixed(0))} GB</b><span>memory</span></div><div><b>${esc(c.stop_limit)} C</b><span>stop limit</span></div></div></label>`).join(""):'<span class="err">No GPU was detected.</span>';
 document.querySelectorAll('input[name=gpu]').forEach(i=>i.onchange=()=>{sel=i.value;renderCards();limits();refreshStart()})}
-function limits(){const c=cards.find(c=>c.bus===sel);$("limits").textContent=c?`Card: ${c.label}. GPUDoc stops the test at ${c.stop_limit} C. Time limit per tool: 900 s.`:"Choose a card."}
-async function load(){const [,i]=await api("/api/info");info=i;$("meta").textContent=`Version ${i.version} · results in ${i.out} · tools file ${i.tools_file||"none"} · ${i.lan?"LAN mode, logged in":"this machine only"}`;
-$("warn").textContent=i.warning;$("tools").innerHTML=i.tools.map(t=>`<label class="${t.available?"":"off"}"><input type="checkbox" value="${t.id}" ${t.available?"":"disabled"}> ${esc(t.label)}${t.available?"":` <small>(${esc(t.reason)})</small>`}${t.id==="gpu_burn"&&t.available?` <small>· memory <select id="burnmem"><option value="">90% of free (gpu-burn default)</option><option>95%</option><option>98%</option></select></small>`:""}</label>`).join("");
-document.querySelectorAll(".tools input").forEach(i=>i.onchange=refreshStart);$("ok").onchange=refreshStart;
+function limits(){const c=cards.find(c=>c.bus===sel);$("limits").innerHTML=c?`<b>${esc(c.name)}</b> in slot ${esc((c.bus||"").replace(/^0+:/,""))}`:"Pick a card in the Cards section above.";refreshStart()}
+async function load(){const [,i]=await api("/api/info");info=i;
+const reach=i.lan?`LAN mode: from any machine on your network at ${(i.addresses||[]).map(a=>`http://${a}:${i.port}/`).join(" or ")||"this machine's address"} (login needed; plain HTTP)`
+:`This machine only. From another computer, open it through an SSH tunnel to ${esc(i.host)}`;
+$("conn").innerHTML=`<dt>Running on</dt><dd><b>${esc(i.host)}</b>, the machine being tested</dd><dt>Reachable</dt><dd>${esc(reach)}</dd>
+<dt>Results saved</dt><dd>${esc(i.out)} on ${esc(i.host)}</dd><dt>Version</dt><dd class="muted">GPUDoc ${esc(i.version)} · tools file ${esc(i.tools_file||"none")}</dd>`;
+$("warn").textContent=i.warning;
+$("tools").innerHTML=i.tools.filter(t=>t.available).map(t=>`<label class="tool"><input type="checkbox" value="${t.id}"><span><b>${esc(t.label.split(" (")[0])}</b><small>${esc(t.description)}</small></span></label>`).join("")||'<span class="err">No tools are set up on this machine.</span>';
+const off=i.tools.filter(t=>!t.available);$("unavail").innerHTML=off.length?`Not available on this machine:<ul>${off.map(t=>`<li><b>${esc(t.label.split(" (")[0])}</b>: ${esc(t.reason)}</li>`).join("")}</ul>`:"";
+document.querySelectorAll(".tools input").forEach(i=>i.onchange=refreshStart);$("ok").onchange=refreshStart;$("burnmem").onchange=refreshStart;
 const [,c]=await api("/api/cards");cards=c.cards;if(cards.length===1)sel=cards[0].bus;renderCards();limits();refreshStart();loadRuns();status()}
-$("start").onclick=async()=>{const tools=[...document.querySelectorAll(".tools input:checked")].map(i=>i.value);$("msg").textContent="Starting...";
-const bm=$("burnmem");const [code,r]=await api("/api/run",{gpu:sel,tools,confirm:"YES",options:{burn_memory:bm&&bm.value||null}});$("msg").innerHTML=code===200?"Started.":`<span class="err">${esc(r.error)}</span>`;if(code===200){$("ok").checked=false;status()}};
+$("start").onclick=async()=>{const tools=chosen();$("msg").textContent="Starting...";
+const bm=$("burnmem");const [code,r]=await api("/api/run",{gpu:sel,tools,confirm:"YES",options:{burn_memory:tools.includes("gpu_burn")&&bm.value||null}});$("msg").innerHTML=code===200?"Started.":`<span class="err">${esc(r.error)}</span>`;if(code===200){$("ok").checked=false;status()}};
 $("stop").onclick=async()=>{const [code,r]=await api("/api/stop",{});$("msg").innerHTML=code===200?"Stopping; the run is recorded as interrupted.":`<span class="err">${esc(r.error)}</span>`};
 function draw(s){const cv=$("chart"),x=cv.getContext("2d"),W=cv.width,H=cv.height;x.clearRect(0,0,W,H);if(s.length<2)return;
 const css=getComputedStyle(document.documentElement);const series=[["temperature_gpu",100,css.getPropertyValue("--bad")],["power_draw",Math.max(150,...s.map(v=>v.power_draw||0)),css.getPropertyValue("--accent")]];
@@ -582,12 +631,16 @@ function eastern(utc){const o={year:"numeric",month:"short",day:"numeric",hour:"
 if(TZ!=="local")o.timeZone=TZ;try{return new Date(utc).toLocaleString("en-CA",o)}catch(e){return utc}}
 function title(run){const cards=[...new Set(run.cards.map(c=>(c.steps[0]?.gpu||"").replace("NVIDIA GeForce ","")).filter(Boolean))];
 const tools=[...new Set(run.cards.flatMap(c=>c.steps.map(s=>TOOLNAMES[s.tool]||s.tool)))];
-const when=run.started_utc?eastern(run.started_utc):run.folder_time?`${run.folder_time} (machine clock, older run: time zone not recorded)`:run.name;
-return `<b>${esc(cards.join(" + ")||"No card result")}</b> · ${esc(tools.join(", ")||"no tools ran")} <span class="muted">· ${esc(when)} · ${esc(run.name)}</span>`}
+const when=run.started_utc?eastern(run.started_utc):run.folder_time?`${run.folder_time} (machine clock)`:run.name;
+return `<b>${esc(cards.join(" + ")||"No card result")}</b> · ${esc(tools.join(", ")||"no tools ran")} <span class="muted">· ${esc(when)}</span>`}
+function findingsCell(st){const fs=st.findings.filter(f=>f.rule!=="LIM-001");const main=fs.filter(f=>f.state!=="NOTE"),notes=fs.filter(f=>f.state==="NOTE");
+return main.map(f=>`${chip(f.state)} ${esc(f.text)}`).join("<br>")+(notes.length?`<details style="border:0;padding:2px 0"><summary class="muted">${notes.length} note${notes.length>1?"s":""}</summary>${notes.map(f=>`<div class="muted" style="margin:3px 0">${esc(f.text)}</div>`).join("")}</details>`:"")||'<span class="muted">none</span>'}
+function sep(){return (info.out||"").includes("\\")?"\\":"/"}
 async function loadRuns(){const [,r]=await api("/api/runs");$("runs").innerHTML=r.runs.length?r.runs.slice(0,30).map(run=>`<details><summary>${run.cards.map(c=>chip(c.state)).join(" ")||'<span class="muted">no result yet</span>'} ${title(run)}</summary>
-${run.cards.map(c=>`<p><b>${esc(c.steps[0]?.gpu||c.folder)}</b> ${esc(c.steps[0]?.bus||"")} ${chip(c.state)}${c.skipped.length?` <span class="muted">not run: ${esc(c.skipped.join(", "))}</span>`:""}</p>
-<table><tr><th>Tool</th><th>Result</th><th>Key figures</th><th>Findings</th></tr>${c.steps.map(st=>`<tr><td>${esc(TOOLNAMES[st.tool]||st.tool)}${st.output?`<br><a href="${esc(st.output)}" target="_blank" rel="noopener">output</a>`:""}</td><td>${chip(st.state)}</td><td>${figures(st.summary)}</td>
-<td>${st.findings.filter(f=>f.rule!=="LIM-001").map(f=>`${chip(f.state)} ${esc(f.rule)}: ${esc(f.text)}`).join("<br>")}</td></tr>`).join("")}</table>`).join("")}</details>`).join(""):'<span class="muted">No results yet.</span>'}
+<div class="where">Saved on ${esc(info.host)} in <b>${esc(info.out+sep()+run.name)}</b></div>
+${run.cards.map(c=>`<p style="margin:6px 0"><b>${esc((c.steps[0]?.gpu||c.folder).replace("NVIDIA GeForce ",""))}</b> <span class="muted">slot ${esc((c.steps[0]?.bus||"").replace(/^0+:/,""))}</span> ${chip(c.state)}${c.skipped.length?` <span class="muted">not run: ${esc(c.skipped.join(", "))}</span>`:""}</p>
+<table><tr><th>Tool</th><th>Result</th><th>Key figures</th><th>Findings</th></tr>${c.steps.map(st=>`<tr><td>${esc(TOOLNAMES[st.tool]||st.tool)}${st.output?`<br><a href="${esc(st.output)}" target="_blank" rel="noopener">tool output</a>`:""}</td><td>${chip(st.state)}</td><td>${figures(st.summary)}</td>
+<td>${findingsCell(st)}</td></tr>`).join("")}</table>`).join("")}</details>`).join(""):'<span class="muted">No results yet.</span>'}
 function figures(s){const k=[["gflops","Gflop/s"],["generation_tokens_per_second","gen tok/s"],["prompt_tokens_per_second","prompt tok/s"],["peak_temp","C peak"],["avg_power_under_load_w","W avg"],["avg_gpu_clock_under_load_mhz","MHz avg"],["memory_coverage_percent","% VRAM"]];
 return k.filter(([n])=>s[n]!=null).map(([n,u])=>`${esc(typeof s[n]==="number"?Math.round(s[n]*10)/10:s[n])} ${u}`).join(" · ")}
 $("tz").value=TZ;$("tz").onchange=()=>{TZ=$("tz").value;try{localStorage.setItem("gpudoc_tz",TZ)}catch(e){}loadRuns()};
