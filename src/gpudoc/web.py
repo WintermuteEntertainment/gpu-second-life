@@ -71,7 +71,7 @@ TOOLS = {
     "gpu_fryer": {"label": "gpu-fryer (load and throttling)", "flags": [("--gpu-fryer", "gpu_fryer")],
                   "linux_only": "gpu-fryer 1.0.0 doesn't build on Windows (part of its code is Unix only)"},
     "llama_bench": {"label": "llama-bench (AI speed)", "flags": [("--llama-bench", "llama_bench"), ("--model", "model")]},
-    "localscore": {"label": "LocalScore (AI score, never uploaded)", "flags": [("--localscore", "localscore"), ("--localscore-model", "localscore_model")]},
+    "localscore": {"label": "LocalScore (AI score)", "flags": [("--localscore", "localscore"), ("--localscore-model", "localscore_model")]},
     "wattever": {"label": "Wattever (AI speed and power)", "flags": [("--wattever", "wattever"), ("--llama-server", "llama_server"), ("--model", "model")]},
 }
 DESCRIPTIONS = {
@@ -80,7 +80,7 @@ DESCRIPTIONS = {
     "gpu_burn": "Heavy compute load that checks every result for errors. 5 minutes.",
     "gpu_fryer": "Heavy compute load that watches for throttling. 5 minutes.",
     "llama_bench": "AI speed with the 7B model. About 1 minute.",
-    "localscore": "AI benchmark score with a 1B model. Never uploaded. About 6 minutes.",
+    "localscore": "AI benchmark score with a 1B model. Not uploaded unless you tick the box. About 6 minutes.",
     "wattever": "AI speed and energy per token with the 7B model. About 2 minutes.",
 }
 WARNING = "These tests stress the GPU and raise its temperature, and they could expose or worsen an existing fault."
@@ -132,6 +132,8 @@ def test_args(config: dict, tools: list[str], gpu: str, out_dir: Path, options: 
         if burn_memory_error(str(memory)):
             raise ValueError(burn_memory_error(str(memory)))
         args += ["--burn-memory", str(memory)]
+    if (options or {}).get("localscore_upload") is True and "localscore" in tools:
+        args += ["--localscore-upload"]
     return args
 
 
@@ -556,7 +558,7 @@ details{border-top:1px solid var(--line);padding:6px 0}summary{cursor:pointer}.e
 .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:6px}.stats div{background:var(--bg);border-radius:6px;padding:4px 8px}.stats b{display:block}.stats span{font-size:.72rem;color:var(--muted)}
 .step{display:flex;gap:10px;align-items:flex-start;margin:14px 0 6px}.num{flex:none;width:22px;height:22px;border-radius:50%;background:var(--accent);color:#fff;font-size:.8rem;display:grid;place-items:center;font-weight:600}
 .toolgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:8px}.tool{border:1px solid var(--line);border-radius:8px;padding:8px 10px;display:flex;gap:8px;cursor:pointer}
-.tool.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}.tool small{display:block;color:var(--muted)}.tool input{accent-color:var(--accent);margin-top:4px}
+.tool{flex-direction:column}.opt{font-size:.82rem;margin-left:24px}.tool.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}.tool small{display:block;color:var(--muted)}.tool input{accent-color:var(--accent);margin-top:4px}
 .unavail{font-size:.85rem;color:var(--muted);margin-top:8px}.unavail li{margin:2px 0}.summary{background:var(--bg);border-radius:8px;padding:10px 12px;margin:8px 0}
 .legend{font-size:.82rem;color:var(--muted);margin:0 0 8px}.where{font-size:.82rem;color:var(--muted);margin:4px 0 8px;overflow-wrap:anywhere}
 </style></head><body><main>
@@ -571,8 +573,7 @@ details{border-top:1px solid var(--line);padding:6px 0}summary{cursor:pointer}.e
 <section class="card"><h2>Run a test</h2>
 <div class="step"><span class="num">1</span><div><b>Card</b><div id="limits" class="muted">Pick a card in the Cards section above.</div></div></div>
 <div class="step"><span class="num">2</span><div style="flex:1"><b>Tools</b> <span class="muted">(run one after another, with a 60 s cool-down between them)</span>
-<div class="toolgrid tools" id="tools"></div><div id="burnrow" class="summary" hidden>gpu-burn memory: <select id="burnmem">
-<option value="">90% of free memory (gpu-burn's default)</option><option>95%</option><option>98%</option></select></div>
+<div class="toolgrid tools" id="tools"></div>
 <div class="unavail" id="unavail"></div></div></div>
 <div class="step"><span class="num">3</span><div style="flex:1"><b>Confirm and start</b><div class="summary" id="plan">Choose a card and at least one tool.</div>
 <div class="warnbox" id="warn"></div>
@@ -590,9 +591,9 @@ const $=id=>document.getElementById(id);let cards=[],info={},sel=null,poll=null;
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 async function api(p,body){const r=await fetch(p,body?{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}:{});return [r.status,await r.json()]}
 function chip(s){return `<span class="chip ${esc(s)}">${esc(s)}</span>`}
-function chosen(){return [...document.querySelectorAll(".tools input:checked")].map(i=>i.value)}
+function chosen(){return [...document.querySelectorAll(".tools input[value]:checked")].map(i=>i.value)}
 function refreshStart(){const tools=chosen();document.querySelectorAll(".tool").forEach(l=>l.classList.toggle("on",l.querySelector("input").checked));
-$("burnrow").hidden=!tools.includes("gpu_burn");const c=cards.find(c=>c.bus===sel);
+const c=cards.find(c=>c.bus===sel);
 $("plan").innerHTML=c&&tools.length?`Will run <b>${esc(tools.map(t=>(info.tools.find(x=>x.id===t)||{}).label||t).map(l=>l.split(" (")[0]).join(", "))}</b> on <b>${esc(c.name)}</b>. GPUDoc stops a tool if the card reaches <b>${esc(c.stop_limit)} C</b>, and after 15 minutes at most.`:"Choose a card and at least one tool.";
 $("start").disabled=!(sel&&tools.length&&$("ok").checked)||!!poll}
 function renderCards(){$("cards").innerHTML=cards.length?cards.map(c=>`<label class="gpu ${sel===c.bus?"sel":""}"><input type="radio" name="gpu" value="${esc(c.bus)}" ${sel===c.bus?"checked":""}>
@@ -606,12 +607,14 @@ const reach=i.lan?`LAN mode: from any machine on your network at ${(i.addresses|
 $("conn").innerHTML=`<dt>Running on</dt><dd><b>${esc(i.host)}</b>, the machine being tested</dd><dt>Reachable</dt><dd>${esc(reach)}</dd>
 <dt>Results saved</dt><dd>${esc(i.out)} on ${esc(i.host)}</dd><dt>Version</dt><dd class="muted">GPUDoc ${esc(i.version)} · tools file ${esc(i.tools_file||"none")}</dd>`;
 $("warn").textContent=i.warning;
-$("tools").innerHTML=i.tools.filter(t=>t.available).map(t=>`<label class="tool"><input type="checkbox" value="${t.id}"><span><b>${esc(t.label.split(" (")[0])}</b><small>${esc(t.description)}</small></span></label>`).join("")||'<span class="err">No tools are set up on this machine.</span>';
+const extra={gpu_burn:`<div class="opt">Memory to use: <select id="burnmem"><option value="">90% of free (default)</option><option>95%</option><option>98%</option></select></div>`,
+localscore:`<div class="opt"><label><input type="checkbox" id="lsupload"> Upload results to localscore.ai (public)</label></div>`};
+$("tools").innerHTML=i.tools.filter(t=>t.available).map(t=>`<div class="tool"><label style="display:flex;gap:8px;cursor:pointer"><input type="checkbox" value="${t.id}"><span><b>${esc(t.label.split(" (")[0])}</b><small>${esc(t.description)}</small></span></label>${extra[t.id]||""}</div>`).join("")||'<span class="err">No tools are set up on this machine.</span>';
 const off=i.tools.filter(t=>!t.available);$("unavail").innerHTML=off.length?`Not available on this machine:<ul>${off.map(t=>`<li><b>${esc(t.label.split(" (")[0])}</b>: ${esc(t.reason)}</li>`).join("")}</ul>`:"";
-document.querySelectorAll(".tools input").forEach(i=>i.onchange=refreshStart);$("ok").onchange=refreshStart;$("burnmem").onchange=refreshStart;
+document.querySelectorAll(".tools input").forEach(i=>i.onchange=refreshStart);$("ok").onchange=refreshStart;
 const [,c]=await api("/api/cards");cards=c.cards;if(cards.length===1)sel=cards[0].bus;renderCards();limits();refreshStart();loadRuns();status()}
 $("start").onclick=async()=>{const tools=chosen();$("msg").textContent="Starting...";
-const bm=$("burnmem");const [code,r]=await api("/api/run",{gpu:sel,tools,confirm:"YES",options:{burn_memory:tools.includes("gpu_burn")&&bm.value||null}});$("msg").innerHTML=code===200?"Started.":`<span class="err">${esc(r.error)}</span>`;if(code===200){$("ok").checked=false;status()}};
+const bm=$("burnmem");const [code,r]=await api("/api/run",{gpu:sel,tools,confirm:"YES",options:{burn_memory:tools.includes("gpu_burn")&&bm&&bm.value||null,localscore_upload:tools.includes("localscore")&&!!($("lsupload")||{}).checked}});$("msg").innerHTML=code===200?"Started.":`<span class="err">${esc(r.error)}</span>`;if(code===200){$("ok").checked=false;status()}};
 $("stop").onclick=async()=>{const [code,r]=await api("/api/stop",{});$("msg").innerHTML=code===200?"Stopping; the run is recorded as interrupted.":`<span class="err">${esc(r.error)}</span>`};
 function draw(s){const cv=$("chart"),x=cv.getContext("2d"),W=cv.width,H=cv.height;x.clearRect(0,0,W,H);if(s.length<2)return;
 const css=getComputedStyle(document.documentElement);const series=[["temperature_gpu",100,css.getPropertyValue("--bad")],["power_draw",Math.max(150,...s.map(v=>v.power_draw||0)),css.getPropertyValue("--accent")]];
@@ -641,7 +644,8 @@ async function loadRuns(){const [,r]=await api("/api/runs");$("runs").innerHTML=
 ${run.cards.map(c=>`<p style="margin:6px 0"><b>${esc((c.steps[0]?.gpu||c.folder).replace("NVIDIA GeForce ",""))}</b> <span class="muted">slot ${esc((c.steps[0]?.bus||"").replace(/^0+:/,""))}</span> ${chip(c.state)}${c.skipped.length?` <span class="muted">not run: ${esc(c.skipped.join(", "))}</span>`:""}</p>
 <table><tr><th>Tool</th><th>Result</th><th>Key figures</th><th>Findings</th></tr>${c.steps.map(st=>`<tr><td>${esc(TOOLNAMES[st.tool]||st.tool)}${st.output?`<br><a href="${esc(st.output)}" target="_blank" rel="noopener">tool output</a>`:""}</td><td>${chip(st.state)}</td><td>${figures(st.summary)}</td>
 <td>${findingsCell(st)}</td></tr>`).join("")}</table>`).join("")}</details>`).join(""):'<span class="muted">No results yet.</span>'}
-function figures(s){const k=[["gflops","Gflop/s"],["generation_tokens_per_second","gen tok/s"],["prompt_tokens_per_second","prompt tok/s"],["peak_temp","C peak"],["avg_power_under_load_w","W avg"],["avg_gpu_clock_under_load_mhz","MHz avg"],["memory_coverage_percent","% VRAM"]];
+function figures(s){if(s.joules_per_generated_token==null&&s.tokens_per_gpu_watt_hour)s={...s,joules_per_generated_token:3600/s.tokens_per_gpu_watt_hour};
+const k=[["gflops","Gflop/s"],["generation_tokens_per_second","gen tok/s"],["joules_per_generated_token","J per generated token"],["prompt_tokens_per_second","prompt tok/s"],["peak_temp","C peak"],["avg_power_under_load_w","W avg"],["avg_gpu_clock_under_load_mhz","MHz avg"],["memory_coverage_percent","% VRAM"]];
 return k.filter(([n])=>s[n]!=null).map(([n,u])=>`${esc(typeof s[n]==="number"?Math.round(s[n]*10)/10:s[n])} ${u}`).join(" · ")}
 $("tz").value=TZ;$("tz").onchange=()=>{TZ=$("tz").value;try{localStorage.setItem("gpudoc_tz",TZ)}catch(e){}loadRuns()};
 load();

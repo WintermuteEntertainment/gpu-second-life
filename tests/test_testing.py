@@ -735,6 +735,23 @@ class RealLocalScore(unittest.TestCase):
         self.assertIn("LLM-001", [f["rule"] for f in r["findings"]])
         self.assertNotIn("note_lines", gtx1060.parse((self.FOLDER / "run_gpu1.stdout").read_text(encoding="utf-8")))
 
+    def test_upload_is_a_choice_off_by_default(self):
+        default, upload = LocalScore("localscore", "m.gguf"), LocalScore("localscore", "m.gguf", upload=True)
+        self.assertIn("-n", default.command())
+        self.assertNotIn("-y", default.command())
+        self.assertIn("-y", upload.command())
+        self.assertNotIn("-n", upload.command())
+        self.assertFalse(upload.block_network)
+        # The real run printed "Results Not Submitted." because -n was used; with upload chosen that line isn't needed.
+        tool = upload.parse((self.FOLDER / "run_gpu0.stdout").read_text(encoding="utf-8"))
+        self.assertTrue(tool["completed"])
+        self.assertIn("didn't print a line confirming", tool["note_lines"][0])
+
+    def test_energy_per_token_is_reported(self):
+        tool = LocalScore("localscore", "m.gguf", block_network=False).parse((self.FOLDER / "run_gpu1.stdout").read_text(encoding="utf-8"))
+        r = evaluate(ev(tool, [{"temperature_gpu": 70, "memory_used": 1300, "power_draw": 103.6, "gpu_util": 97}]))
+        self.assertAlmostEqual(r["summary"]["joules_per_generated_token"], round(103.6 / tool["generation_tokens_per_second"], 2))
+
     def test_linux_runs_have_no_network(self):
         a = LocalScore("localscore", "m.gguf", block_network=True)
         self.assertEqual(a.command()[:4], ["sudo", "-n", "unshare", "-n"])

@@ -88,7 +88,7 @@ def cmd_test(a) -> int:
         if not (a.localscore and a.localscore_model):
             print("--localscore and --localscore-model must be used together.")
             return 3
-        adapters.append(LocalScore(a.localscore, a.localscore_model))
+        adapters.append(LocalScore(a.localscore, a.localscore_model, upload=a.localscore_upload))
     if a.wattever:
         if not (a.llama_server and a.model):
             print("--wattever needs --llama-server and --model.")
@@ -239,8 +239,11 @@ def main(argv=None) -> int:
     t.add_argument("--gpu-fryer", help="Path to gpu-fryer, to add a load and throttling test (Linux only)")
     t.add_argument("--fryer-seconds", type=int, default=300, help="How long gpu-fryer runs. Default 300")
     t.add_argument("--dcgm", nargs="?", const="dcgmi", help="Run Nvidia DCGM diagnostics first (Linux; optional path to dcgmi)")
-    t.add_argument("--localscore", help="Path to the LocalScore binary. Results are never uploaded; on Linux it also runs with no network")
+    t.add_argument("--localscore", help="Path to the LocalScore binary. Results aren't uploaded unless --localscore-upload is given; "
+                                        "without it, Linux runs it with no network")
     t.add_argument("--localscore-model", help="GGUF model for LocalScore, such as its 1B reference model")
+    t.add_argument("--localscore-upload", action="store_true", help="Upload LocalScore's results to the public localscore.ai "
+                                                                   "database. Off by default")
     t.add_argument("--wattever", help="Path to Wattever's folder, to add its speed and power benchmark (uses --model)")
     t.add_argument("--llama-server", help="Path to llama.cpp's llama-server, for --wattever")
     t.add_argument("--dcgm-level", type=int, default=1, help="DCGM run level. GeForce cards support level 1 only. Default 1")

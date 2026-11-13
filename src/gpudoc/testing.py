@@ -419,7 +419,8 @@ ANSI = re.compile(r"\x1b\[[0-9;]*m")
 class LocalScore:
     """Adapter for LocalScore 0.9.3 (llamafile, MIT), an LLM benchmark with a public results database.
 
-    LocalScore asks before uploading results to localscore.ai. GPUDoc always passes -n (never upload) and never -y.
+    LocalScore asks before uploading results to localscore.ai. GPUDoc passes -n (don't upload) unless uploading is chosen,
+    in which case it passes -y and leaves the network open. Not uploading is the default (Tim, 2026-11-13).
     On Linux it also runs the tool in a network namespace with no network at all, so nothing can leave even if the
     flag were ignored; that needs sudo without a prompt. Output format read from real runs on Noodlecart, 2026-11-12."""
 
@@ -433,9 +434,9 @@ class LocalScore:
                "prompt_tokens_per_second": re.compile(r"^Prompt Processing:\s+([\d.]+) tok/s"),
                "time_to_first_token_ms": re.compile(r"^Time to First Token:\s+([\d.]+) ms")}
 
-    def __init__(self, exe: str, model: str, block_network: bool | None = None):
-        self.exe, self.model = str(Path(exe).resolve()), str(Path(model).resolve())
-        self.block_network = sys.platform.startswith("linux") if block_network is None else block_network
+    def __init__(self, exe: str, model: str, block_network: bool | None = None, upload: bool = False):
+        self.exe, self.model, self.upload = str(Path(exe).resolve()), str(Path(model).resolve()), upload
+        self.block_network = False if upload else (sys.platform.startswith("linux") if block_network is None else block_network)
         self.index, self.expect_name = None, None
         self.env = {"CUDA_DEVICE_ORDER": "PCI_BUS_ID"}
 
@@ -480,13 +481,14 @@ class LocalScore:
 
     def command(self) -> list[str]:
         idx = ["-i", str(self.index)] if self.index is not None else []
-        return self._wrap(["-m", self.model, "-g", "nvidia", *idx, "-n", "-o", "json"])
+        return self._wrap(["-m", self.model, "-g", "nvidia", *idx, "-y" if self.upload else "-n", "-o", "json"])
 
     def parse(self, text: str) -> dict:
         data = _first_json_object(text) or {}
         results = data.get("results") or []
         lines = [line.strip() for line in ANSI.sub("", text).splitlines()]
-        out = {"completed": bool(results) and any(line == self.NOT_SENT for line in lines), "failure_lines": [], "attention_lines": [],
+        sent_line = any(line.startswith("Results Submitted") or "submitted successfully" in line.lower() for line in lines)
+        out = {"completed": bool(results) and (self.upload or any(line == self.NOT_SENT for line in lines)), "failure_lines": [], "attention_lines": [],
                "iterations": len(results), "started": bool(data), "accelerator": (data.get("accelerator_info") or {}).get("name"),
                "main_gpus": sorted({r.get("main_gpu") for r in results if r.get("main_gpu") is not None}),
                "localscore_tests": [{k: r.get(k) for k in ("name", "prompt_tps", "gen_tps", "ttft_ms")} for r in results],
@@ -494,7 +496,11 @@ class LocalScore:
         for key, rx in self.SUMMARY.items():
             m = next((m for m in map(rx.match, lines) if m), None)
             out[key] = float(m.group(1)) if m else None
-        if results and not any(line == self.NOT_SENT for line in lines):
+        if self.upload:
+            # LocalScore's wording for a successful upload hasn't been seen in a real run yet.
+            out.setdefault("note_lines", []).append("Uploading to localscore.ai was chosen for this run, so its results are public."
+                                                    if sent_line else "Uploading was chosen, but LocalScore didn't print a line confirming it was sent.")
+        elif results and not any(line == self.NOT_SENT for line in lines):
             out["attention_lines"].append("LocalScore didn't print 'Results Not Submitted.', so it can't be confirmed that nothing was uploaded.")
         if getattr(self, "gtx16", False):
             # Found on Noodlecart, 2026-11-12: llama.cpp's CUDA code treats GTX 16 cards (compute 7.5, no tensor cores) like
@@ -503,7 +509,7 @@ class LocalScore:
             out["note_lines"] = ["This is a GTX 16 card, which has no tensor cores. LocalScore's CUDA library (bundled on Linux, compiled on first use on Windows) runs it on code "
                                  "meant for tensor-core cards, so prompt speed and its score understate the card. Compare it only "
                                  "with other GTX 16 runs of the same LocalScore build."]
-        if any(line.startswith("Results Submitted") or "submitted successfully" in line.lower() for line in lines):
+        if sent_line and not self.upload:
             out["attention_lines"].append("LocalScore says results were submitted to the public database.")
         return out
 
@@ -854,6 +860,12 @@ def evaluate(e: Evidence) -> dict:
         summary["avg_power_under_load_w"] = round(sum(watts) / len(watts), 1)
     if clocks:
         summary["avg_gpu_clock_under_load_mhz"] = round(sum(clocks) / len(clocks))
+    if e.tool.get("joules_per_generated_token") is not None:
+        # Wattever measures it over the generation phase itself.
+        summary["joules_per_generated_token"] = e.tool["joules_per_generated_token"]
+    elif e.tool.get("generation_tokens_per_second") and watts:
+        # Average GPU power under load divided by generation speed: an estimate that includes prompt-processing time.
+        summary["joules_per_generated_token"] = round(sum(watts) / len(watts) / e.tool["generation_tokens_per_second"], 2)
     if e.tool.get("gflops") is not None:
         summary["gflops"] = e.tool["gflops"]
         if watts:
