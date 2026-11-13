@@ -5,6 +5,7 @@ import argparse
 import datetime as dt
 import getpass
 import json
+import os
 import platform
 import sys
 from pathlib import Path
@@ -56,8 +57,8 @@ def cmd_test(a) -> int:
     from .testing import DcgmDiag, GpuBurn, GpuFryer, LlamaBench, LocalScore, MemtestVulkan, Wattever, describe_gpu, run_suite, select_gpu, temp_limit_for
     adapters = [MemtestVulkan(a.tool_path)] if a.tool_path else []
     if a.gpu_burn:
-        if not sys.platform.startswith("linux"):
-            print("Nothing was run. gpu-burn only runs on Linux.")
+        if not (sys.platform.startswith("linux") or os.name == "nt"):
+            print("Nothing was run. gpu-burn runs on Linux and Windows only.")
             return 3
         if a.burn_seconds + 60 > a.max_seconds:
             print(f"Nothing was run. --burn-seconds {a.burn_seconds} needs --max-seconds of at least {a.burn_seconds + 60}.")
@@ -178,10 +179,7 @@ def cmd_tune(a) -> int:
         print(f"{r['gpu']}: clock offsets " + ("are at stock (0 MHz)." if ok else f"could NOT be reset: {r['set'].get('error') or r['after']}"))
         return 0 if ok else 2
     if bool(a.gpu_burn) == bool(a.tool_path):
-        print("Choose one workload: --gpu-burn (Linux) or --tool-path (memtest_vulkan).")
-        return 3
-    if a.gpu_burn and not sys.platform.startswith("linux"):
-        print("Nothing was run. gpu-burn only runs on Linux; use --tool-path with memtest_vulkan here.")
+        print("Choose one workload: --gpu-burn or --tool-path (memtest_vulkan).")
         return 3
     report, _ = inspect(LocalRunner())
     g, why = select_gpu(report, a.gpu)
@@ -226,7 +224,7 @@ def main(argv=None) -> int:
     i.set_defaults(func=cmd_inspect)
     t = sub.add_parser("test", help="Draft: run memory, compute and AI stress tests on one card with safety stops. Asks for confirmation.")
     t.add_argument("--tool-path", help="Path to memtest_vulkan, for the memory test")
-    t.add_argument("--gpu-burn", help="Path to gpu_burn, to add a compute stress test (Linux only)")
+    t.add_argument("--gpu-burn", help="Path to gpu_burn (gpu_burn.exe on Windows), to add a compute stress test that checks its results")
     t.add_argument("--burn-seconds", type=int, default=300, help="How long gpu-burn runs. Default 300")
     t.add_argument("--gpu-fryer", help="Path to gpu-fryer, to add a load and throttling test (Linux only)")
     t.add_argument("--fryer-seconds", type=int, default=300, help="How long gpu-fryer runs. Default 300")
@@ -255,7 +253,7 @@ def main(argv=None) -> int:
     s.set_defaults(func=cmd_sweep)
     u = sub.add_parser("tune", help="Draft: find the highest stable GPU clock offset on one card, step by step. Asks for confirmation.")
     u.add_argument("--gpu", help="Card, by nvidia-smi index or PCI bus ID. Required when more than one GPU is installed")
-    u.add_argument("--gpu-burn", help="Path to gpu_burn, the workload that proves each step (Linux only)")
+    u.add_argument("--gpu-burn", help="Path to gpu_burn (gpu_burn.exe on Windows), the workload that proves each step")
     u.add_argument("--tool-path", help="Path to memtest_vulkan, as the workload instead of gpu-burn")
     u.add_argument("--step", type=int, default=25, help="MHz added per step. Default 25")
     u.add_argument("--max-offset", type=int, default=150, help="Highest offset to try, in MHz. Default 150")

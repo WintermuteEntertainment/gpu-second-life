@@ -174,14 +174,24 @@ class GpuBurn:
         return p.stdout
 
     def prepare(self, gpus: list[dict], target: dict, runner) -> str | None:
-        if not sys.platform.startswith("linux"):
-            return "gpu-burn only runs on Linux, so it didn't run."
+        # Linux build, and the Windows port in the same repository's win/ folder (same kernel, counter and verdict).
+        if not (sys.platform.startswith("linux") or os.name == "nt"):
+            return "gpu-burn runs on Linux and Windows only, so it didn't run."
         if len(gpus) == 1:
             return None
         number = _bus_rank(gpus, target)
         if number is None:
             return "A card's PCI bus ID is unknown, so gpu-burn's device number can't be worked out, and it didn't run."
         name = target["fields"]["name"]["value"]
+        if os.name == "nt":
+            # The Windows port's -i option skips CUDA's start-up and quits or crashes (commit 0d19c94, found 2026-11-13).
+            # Hiding the other cards from CUDA and running its all-cards path works, so that's used instead of -i.
+            self.env = {**self.env, "CUDA_VISIBLE_DEVICES": str(number)}
+            listed = self.parse_list(self.list_devices())
+            if listed != {0: name}:
+                return (f"With only the selected card visible, gpu-burn listed {listed or 'nothing'}, not just '{name}', so the "
+                        "selected card can't be picked for certain, and it didn't run.")
+            return None
         listed = self.parse_list(self.list_devices())
         if listed.get(number) != name:
             return (f"gpu-burn lists device {number} as '{listed.get(number)}', not '{name}', so the selected card can't be "
